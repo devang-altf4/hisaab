@@ -1,56 +1,149 @@
+import React, { useEffect } from 'react';
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { API_BASE_URL } from '../src/api/client';
+import { StatusBar } from 'expo-status-bar';
+import { Stack, router, useSegments } from 'expo-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider, useAuth } from '../src/auth/AuthContext';
+import { colors } from '../src/theme/tokens';
 import { useFonts } from 'expo-font';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
-import 'react-native-reanimated';
+import { font, fontAssets } from '../src/theme/fonts';
+import {
+  registerPushToken,
+  syncNotificationSchedule,
+  setupNotificationResponseListener,
+} from '../src/notifications/notificationService';
 
-import { useColorScheme } from '@/components/useColorScheme';
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 10_000,
+      refetchOnWindowFocus: true,
+    },
+  },
+});
 
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
-
-export const unstable_settings = {
-  // Ensure that reloading on `/modal` keeps a back button present.
-  anchor: '(tabs)',
-};
-
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
-
-export default function RootLayout() {
-  const [loaded, error] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
-  useEffect(() => {
-    if (error) throw error;
-  }, [error]);
+function RootNavigation() {
+  const { isLoading, isOnboarded, user, error, bootstrap } = useAuth();
+  const segments = useSegments();
+  const notificationsPerDay = user?.notificationsPerDay;
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
+    if (isLoading || !user) return;
+
+    const inOnboarding = segments[0] === 'onboarding';
+
+    // Onboarding navigates to the tabs itself after its final "daily capital" step,
+    // so don't yank the user out the moment the profile is saved.
+    if (!isOnboarded && !inOnboarding) {
+      router.replace('/onboarding' as any);
     }
-  }, [loaded]);
+  }, [isLoading, isOnboarded, segments]);
 
-  if (!loaded) {
-    return null;
+  useEffect(() => {
+    const unsub = setupNotificationResponseListener();
+    return () => unsub();
+  }, []);
+
+  // Only after login + onboarding: before that there's no token (calls would 401 and
+  // race the bootstrap guest login), and onboarding owns the permission pre-prompt.
+  useEffect(() => {
+    if (isLoading || !isOnboarded || notificationsPerDay === undefined) return;
+    void registerPushToken();
+    void syncNotificationSchedule(notificationsPerDay);
+  }, [isLoading, isOnboarded, notificationsPerDay]);
+
+  // Login failed (server down, wrong IP, phone on another Wi-Fi): say so instead of a blank screen.
+  if (!isLoading && !user && error) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorTitle}>Can't reach Hisaab</Text>
+        <Text style={styles.errorBody}>
+          Check that the server is running and this phone is on the same Wi-Fi.{'\n'}
+          {API_BASE_URL}
+        </Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={() => void bootstrap()}>
+          <Text style={styles.retryText}>Try Again</Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
-  return <RootLayoutNav />;
-}
-
-function RootLayoutNav() {
-  const colorScheme = useColorScheme();
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator color={colors.accent} size="large" />
+      </View>
+    );
+  }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+    <>
+      <StatusBar style="light" />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.bg },
+          animation: 'fade',
+        }}
+      >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="capture"
+          options={{
+            presentation: 'fullScreenModal',
+            headerShown: false,
+            animation: 'slide_from_bottom',
+          }}
+        />
+        <Stack.Screen
+          name="meal/[id]"
+          options={{
+            presentation: 'modal',
+            headerShown: false,
+            animation: 'slide_from_bottom',
+          }}
+        />
+        <Stack.Screen
+          name="paywall"
+          options={{
+            presentation: 'modal',
+            headerShown: false,
+            animation: 'slide_from_bottom',
+          }}
+        />
+        <Stack.Screen name="trainer/[clientId]" options={{ headerShown: false }} />
       </Stack>
-    </ThemeProvider>
+    </>
   );
 }
+
+export default function RootLayout() {
+  // Hold the first frame until Mukta is ready so text never flashes in the system font.
+  // If loading fails we still render (system font fallback) rather than block the app.
+  const [fontsLoaded, fontError] = useFonts(fontAssets);
+  if (!fontsLoaded && !fontError) return <View style={styles.loadingContainer} />;
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <RootNavigation />
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  errorTitle: { color: '#FFFFFF', fontFamily: font.bold, fontSize: 24, lineHeight: 30, letterSpacing: -0.4, textAlign: 'center' },
+  errorBody: { color: '#8E8E93', fontFamily: font.regular, fontSize: 15, lineHeight: 22, textAlign: 'center', marginTop: 6, marginHorizontal: 32 },
+  retryBtn: { marginTop: 28, backgroundColor: '#FFFFFF', paddingHorizontal: 40, paddingVertical: 14, borderRadius: 28 },
+  retryText: { color: '#000000', fontFamily: font.bold, fontSize: 17 },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

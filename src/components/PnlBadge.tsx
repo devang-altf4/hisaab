@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, radii, spacing } from '../theme/tokens';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
 import type { Pnl, PnlStatus } from '../api/hisaabApi';
 
 interface PnlBadgeProps {
@@ -16,19 +17,18 @@ export const PnlBadge: React.FC<PnlBadgeProps> = ({ pnl, size = 'md' }) => {
   const isLoss = status === 'LOSS';
 
   const badgeColor = isProfit ? colors.profit : isLoss ? colors.loss : colors.accent;
-  const bgGlow = isProfit ? 'rgba(16, 185, 129, 0.15)' : isLoss ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)';
+  const bg = isProfit ? 'rgba(16, 185, 129, 0.14)' : isLoss ? 'rgba(255, 69, 58, 0.14)' : 'rgba(245, 158, 11, 0.14)';
 
-  const fontSize = size === 'sm' ? 11 : size === 'lg' ? 14 : 12;
+  const fontSize = size === 'sm' ? 12 : size === 'lg' ? 15 : 13;
   const paddingVertical = size === 'sm' ? 3 : size === 'lg' ? 6 : 4;
-  const paddingHorizontal = size === 'sm' ? 8 : size === 'lg' ? 14 : 10;
+  const paddingHorizontal = size === 'sm' ? 8 : size === 'lg' ? 12 : 10;
 
   return (
     <View
       style={[
         styles.badge,
         {
-          backgroundColor: bgGlow,
-          borderColor: badgeColor,
+          backgroundColor: bg,
           paddingVertical,
           paddingHorizontal,
         },
@@ -45,7 +45,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: radii.pill,
-    borderWidth: 1,
     alignSelf: 'flex-start',
     gap: 6,
   },
@@ -55,8 +54,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   text: {
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    fontFamily: font.semibold,
+    letterSpacing: -0.1,
   },
 });
-

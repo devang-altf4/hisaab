@@ -6,18 +6,19 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
-  Image,
   Dimensions,
   Platform,
   Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
-import { colors, radii, spacing } from '../src/theme/tokens';
+import { colors, radii } from '../src/theme/tokens';
+import { font } from '../src/theme/fonts';
 import { router } from 'expo-router';
-import { X, Camera as CameraIcon, Image as ImageIcon, Barcode, MessageSquare, FlipHorizontal, Zap, ZapOff, Check, Plus, Minus } from 'lucide-react-native';
+import { X, Image as ImageIcon, Zap, ZapOff, FlipHorizontal, Plus, Minus } from 'lucide-react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCreateMeal } from '../src/api/queries';
@@ -28,7 +29,6 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type CaptureMode = 'snap' | 'barcode' | 'describe';
 
-/** Same slots the server uses when it infers the meal type. */
 function mealTypeNow(): MealType {
   const h = new Date().getHours();
   if (h >= 4 && h < 11) return 'breakfast';
@@ -62,7 +62,6 @@ export default function CaptureScreen() {
   const askedPermission = useRef(false);
 
   useEffect(() => {
-    // Ask once; if the user denied, the fallback screen below has a button.
     if (permission && !permission.granted && permission.canAskAgain && !askedPermission.current) {
       askedPermission.current = true;
       requestPermission();
@@ -74,7 +73,6 @@ export default function CaptureScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      // 1. Resize with expo-image-manipulator to max 1024px long edge, JPEG quality 0.7
       const targetSize = 1024;
       const actions = [];
       if (width && height) {
@@ -94,12 +92,7 @@ export default function CaptureScreen() {
       });
       if (!manipResult.base64) throw new Error('Image encoding failed');
 
-      // 2. Fire the upload without awaiting. This screen unmounts right below, so the
-      //    handlers are plain promise callbacks (mutate() callbacks are dropped on unmount).
-      //    mealType is omitted on purpose: the server infers it from the time of day.
-      //    Sent as base64 JSON, not multipart: Expo replaces global fetch on native, and its
-      //    FormData only accepts Blob/File parts — React Native's { uri } parts throw
-      //    "Unsupported FormDataPart implementation".
+      // Sent as base64 JSON, not multipart
       api.meals
         .analyze({ imageBase64: manipResult.base64, mimeType: 'image/jpeg' })
         .then(() => queryClient.invalidateQueries({ queryKey: ['dashboard'] }))
@@ -107,11 +100,11 @@ export default function CaptureScreen() {
           if (err?.code === 'PAYWALL_LIMIT' || err?.status === 402) {
             router.push({ pathname: '/paywall', params: { reason: err.message } } as any);
           } else {
-            Alert.alert('Couldn’t upload photo', err?.message || 'Check your connection and try again.');
+            Alert.alert('Couldn’t upload photo', err?.message || 'Check connection.');
           }
         });
 
-      // 3. Close camera immediately so user sees the skeleton card on Home
+      // Close camera immediately
       router.back();
     } catch (err: any) {
       console.error('[Capture] error processing image:', err);
@@ -122,8 +115,6 @@ export default function CaptureScreen() {
   const handleCapturePhoto = async () => {
     if (!cameraRef.current) return;
     try {
-      // No skipProcessing: on many Android phones (e.g. Samsung) it returns sideways photos,
-      // and the thumbnail would show rotated. We re-encode to 1024px anyway, so quality 0.8 is plenty.
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (photo?.uri) {
         await processAndUploadImage(photo.uri, photo.width, photo.height);
@@ -149,7 +140,6 @@ export default function CaptureScreen() {
     }
   };
 
-  // Handle Describe flow
   const handleAnalyzeDescription = async () => {
     if (!description.trim()) return;
     setIsAnalyzingDescription(true);
@@ -163,7 +153,6 @@ export default function CaptureScreen() {
         { wait: true }
       );
       setIsAnalyzingDescription(false);
-      // Open review sheet for this meal
       router.replace(`/meal/${res.meal.id}` as any);
     } catch (err: any) {
       setIsAnalyzingDescription(false);
@@ -175,7 +164,6 @@ export default function CaptureScreen() {
     }
   };
 
-  // Handle Barcode scanning
   const handleBarcodeScanned = async (scanResult: BarcodeScanningResult) => {
     if (scannedBarcode || isLookingUpBarcode) return;
     const code = scanResult.data;
@@ -192,7 +180,7 @@ export default function CaptureScreen() {
       if (err?.status === 404 || err?.code === 'NOT_FOUND') {
         setBarcodeNotFound(true);
       } else {
-        setScannedBarcode(null); // unlock the scanner so the user can try again
+        setScannedBarcode(null);
         Alert.alert('Barcode lookup', err?.message || 'Lookup failed');
       }
     } finally {
@@ -224,23 +212,22 @@ export default function CaptureScreen() {
     );
   };
 
-  // Describe mode needs no camera — never lock the user out of logging food.
+  // Describe mode does not require camera permission
   if (!permission?.granted && mode !== 'describe') {
     return (
       <View style={styles.permissionContainer}>
-        <CameraIcon size={48} color={colors.accent} />
-        <Text style={styles.permissionTitle}>Camera Access Required</Text>
+        <Text style={styles.permissionTitle}>Camera Access</Text>
         <Text style={styles.permissionSub}>
-          Hisaab needs camera access to instantly scan your meals and calculate calories.
+          Hisaab uses the camera to scan meals and calculate calories.
         </Text>
         <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
           <Text style={styles.permissionBtnText}>Enable Camera</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.closePermissionBtn} onPress={() => setMode('describe')}>
-          <Text style={[styles.closePermissionBtnText, { color: colors.accent }]}>Describe meal instead</Text>
+        <TouchableOpacity style={styles.textBtn} onPress={() => setMode('describe')}>
+          <Text style={styles.textBtnText}>Describe meal instead</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.closePermissionBtn} onPress={() => router.back()}>
-          <Text style={styles.closePermissionBtnText}>Cancel</Text>
+        <TouchableOpacity style={styles.textBtn} onPress={() => router.back()}>
+          <Text style={styles.textBtnText}>Cancel</Text>
         </TouchableOpacity>
       </View>
     );
@@ -250,20 +237,30 @@ export default function CaptureScreen() {
     <View style={styles.container}>
       {/* Top Bar */}
       <View style={[styles.topBar, { top: insets.top + 8 }]}>
-        <TouchableOpacity style={styles.topBtn} onPress={() => router.back()}>
-          <X size={22} color={colors.text} />
+        <TouchableOpacity
+          style={styles.topCircleBtn}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Close camera"
+        >
+          <X size={22} color="#FFFFFF" strokeWidth={2.4} />
         </TouchableOpacity>
 
         {mode === 'snap' && (
-          <View style={styles.topActions}>
-            <TouchableOpacity style={styles.topBtn} onPress={() => setFlash(!flash)}>
-              {flash ? <Zap size={22} color={colors.accent} /> : <ZapOff size={22} color={colors.textDim} />}
+          <View style={styles.topRightActions}>
+            <TouchableOpacity
+              style={styles.topCircleBtn}
+              onPress={() => setFlash(!flash)}
+              accessibilityLabel="Toggle flash"
+            >
+              {flash ? <Zap size={20} color={colors.accent} /> : <ZapOff size={20} color="#FFFFFF" />}
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.topBtn}
+              style={styles.topCircleBtn}
               onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
+              accessibilityLabel="Switch camera"
             >
-              <FlipHorizontal size={22} color={colors.text} />
+              <FlipHorizontal size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         )}
@@ -271,201 +268,195 @@ export default function CaptureScreen() {
 
       {/* Main Viewport */}
       {mode === 'describe' ? (
-        <View style={styles.describeContainer}>
-          <Text style={styles.describeHeader}>Describe your meal</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={[styles.describeView, { paddingTop: insets.top + 60 }]}
+        >
+          <Text style={styles.describeTitle}>Describe your meal</Text>
           <Text style={styles.describeSub}>Write it the way you’d say it. Quantities help.</Text>
 
           <TextInput
             style={styles.describeInput}
             multiline
-            numberOfLines={4}
-            placeholder="e.g. 2 idlis, sambar and a filter coffee"
+            placeholder="e.g. 2 rotis, dal tadka and a plate of rice"
             placeholderTextColor={colors.textMute}
             value={description}
             onChangeText={setDescription}
             autoFocus
+            selectionColor="#FFFFFF"
           />
 
-          <Text style={styles.mealTypeLabel}>MEAL TYPE</Text>
-          <View style={styles.mealTypeRow}>
-            {(['breakfast', 'lunch', 'snack', 'dinner'] as const).map((t) => (
-              <TouchableOpacity
-                key={t}
-                style={[styles.mealTypeChip, selectedMealType === t && styles.mealTypeChipActive]}
-                onPress={() => setSelectedMealType(t)}
-              >
-                <Text
-                  style={[styles.mealTypeText, selectedMealType === t && styles.mealTypeTextActive]}
+          <View style={styles.mealChipsRow}>
+            {(['breakfast', 'lunch', 'snack', 'dinner'] as const).map((t) => {
+              const on = selectedMealType === t;
+              const label = t.charAt(0).toUpperCase() + t.slice(1);
+              return (
+                <TouchableOpacity
+                  key={t}
+                  style={[styles.mealChip, on && styles.mealChipOn]}
+                  onPress={() => setSelectedMealType(t)}
                 >
-                  {t.toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text style={[styles.mealChipText, on && styles.mealChipTextOn]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
+          <View style={{ flex: 1 }} />
+
+          {/* Pinned Analyze Meal button */}
           <TouchableOpacity
-            style={styles.analyzeBtn}
+            style={[styles.analyzeBtn, !description.trim() && styles.analyzeBtnDisabled]}
+            disabled={!description.trim() || isAnalyzingDescription}
             onPress={handleAnalyzeDescription}
-            disabled={isAnalyzingDescription || !description.trim()}
           >
             {isAnalyzingDescription ? (
-              <ActivityIndicator color="#000" size="small" />
+              <ActivityIndicator color="#000000" size="small" />
             ) : (
               <Text style={styles.analyzeBtnText}>Analyze Meal</Text>
             )}
           </TouchableOpacity>
-        </View>
+        </KeyboardAvoidingView>
       ) : (
-        <View style={styles.cameraWrapper}>
-          <CameraView
-            ref={cameraRef}
-            style={StyleSheet.absoluteFill}
-            facing={facing}
-            enableTorch={flash}
-            barcodeScannerSettings={
-              mode === 'barcode'
-                ? {
-                    // Food packaging only — the server accepts 6–14 digit codes
-                    barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'],
-                  }
-                : undefined
-            }
-            onBarcodeScanned={mode === 'barcode' ? handleBarcodeScanned : undefined}
-          />
-
+        /* Camera Viewport (Snap or Barcode) */
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing={facing}
+          enableTorch={flash}
+          barcodeScannerSettings={{
+            barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'],
+          }}
+          onBarcodeScanned={mode === 'barcode' ? handleBarcodeScanned : undefined}
+        >
           {mode === 'barcode' && (
             <View style={styles.barcodeOverlay}>
-              <View style={styles.barcodeTargetBox}>
-                <View style={[styles.corner, styles.cornerTL]} />
-                <View style={[styles.corner, styles.cornerTR]} />
-                <View style={[styles.corner, styles.cornerBL]} />
-                <View style={[styles.corner, styles.cornerBR]} />
-              </View>
-              <Text style={styles.barcodeGuideText}>Point camera at the barcode on packaged food</Text>
-            </View>
-          )}
+              <View style={styles.scanFrame} />
+              <Text style={styles.scanHint}>Point at the barcode on the pack</Text>
 
-          {/* Barcode scanning result sheet */}
-          {scannedProduct && (
-            <View style={styles.productSheet}>
-              <View style={styles.productSheetHeader}>
-                <View style={{ flex: 1 }}>
+              {isLookingUpBarcode && (
+                <View style={styles.barcodeLoadingBadge}>
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <Text style={styles.barcodeLoadingText}>Looking up product…</Text>
+                </View>
+              )}
+
+              {barcodeNotFound && (
+                <View style={styles.barcodeErrorBadge}>
+                  <Text style={styles.barcodeErrorText}>
+                    We couldn’t find this product. Try a photo instead.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.switchModePill}
+                    onPress={() => {
+                      setBarcodeNotFound(false);
+                      setScannedBarcode(null);
+                      setMode('snap');
+                    }}
+                  >
+                    <Text style={styles.switchModePillText}>Switch to Photo</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Barcode Result Sheet */}
+              {scannedProduct && (
+                <View style={styles.barcodeResultSheet}>
                   <Text style={styles.productName}>{scannedProduct.name}</Text>
-                  {scannedProduct.brand && <Text style={styles.productBrand}>{scannedProduct.brand}</Text>}
-                </View>
-                <TouchableOpacity onPress={() => { setScannedProduct(null); setScannedBarcode(null); }}>
-                  <X size={20} color={colors.textDim} />
-                </TouchableOpacity>
-              </View>
+                  {scannedProduct.brand && (
+                    <Text style={styles.productBrand}>{scannedProduct.brand}</Text>
+                  )}
+                  <Text style={styles.productKcal}>
+                    {Math.round(scannedProduct.calories * barcodeServings)} kcal per pack
+                  </Text>
 
-              <View style={styles.productNutritionRow}>
-                <Text style={styles.productCalText}>
-                  {Math.round(scannedProduct.calories * barcodeServings)} kcal
-                </Text>
-                <Text style={styles.productServingLabel}>
-                  ({scannedProduct.servingLabel} × {barcodeServings})
-                </Text>
-              </View>
+                  <View style={styles.servingsStepperRow}>
+                    <Text style={styles.servingsStepperLabel}>Servings:</Text>
+                    <View style={styles.stepperWrap}>
+                      <TouchableOpacity
+                        style={styles.stepperBtn}
+                        onPress={() => setBarcodeServings((s) => Math.max(0.5, s - 0.5))}
+                      >
+                        <Minus size={16} color={colors.text} />
+                      </TouchableOpacity>
+                      <Text style={styles.stepperVal}>{barcodeServings}×</Text>
+                      <TouchableOpacity
+                        style={styles.stepperBtn}
+                        onPress={() => setBarcodeServings((s) => Math.min(5, s + 0.5))}
+                      >
+                        <Plus size={16} color={colors.text} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
 
-              {/* Stepper */}
-              <View style={styles.servingStepperRow}>
-                <Text style={styles.stepperLabel}>Servings:</Text>
-                <View style={styles.stepperControls}>
                   <TouchableOpacity
-                    style={styles.stepperBtn}
-                    onPress={() => setBarcodeServings((s) => Math.max(0.5, s - 0.5))}
+                    style={styles.addBarcodeBtn}
+                    onPress={handleLogBarcodeProduct}
+                    disabled={createMealMutation.isPending}
                   >
-                    <Minus size={16} color={colors.text} />
-                  </TouchableOpacity>
-                  <Text style={styles.stepperValue}>{barcodeServings}x</Text>
-                  <TouchableOpacity
-                    style={styles.stepperBtn}
-                    onPress={() => setBarcodeServings((s) => s + 0.5)}
-                  >
-                    <Plus size={16} color={colors.text} />
+                    {createMealMutation.isPending ? (
+                      <ActivityIndicator color="#000000" size="small" />
+                    ) : (
+                      <Text style={styles.addBarcodeBtnText}>Add to Log</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
-              </View>
-
-              <TouchableOpacity
-                style={styles.logBarcodeBtn}
-                onPress={handleLogBarcodeProduct}
-                disabled={createMealMutation.isPending}
-              >
-                {createMealMutation.isPending ? (
-                  <ActivityIndicator color="#000" size="small" />
-                ) : (
-                  <Text style={styles.logBarcodeBtnText}>Add to Hisaab</Text>
-                )}
-              </TouchableOpacity>
+              )}
             </View>
           )}
-
-          {barcodeNotFound && (
-            <View style={styles.notFoundSheet}>
-              <Text style={styles.notFoundTitle}>We couldn’t find this product. Try a photo instead.</Text>
-              <TouchableOpacity
-                style={styles.switchModeBtn}
-                onPress={() => {
-                  setBarcodeNotFound(false);
-                  setScannedBarcode(null);
-                  setMode('snap');
-                }}
-              >
-                <CameraIcon size={16} color="#000" />
-                <Text style={styles.switchModeBtnText}>Snap photo instead</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
+        </CameraView>
       )}
 
-      {/* Bottom Mode Switcher & Shutter */}
-      <View style={[styles.bottomControlsContainer, { bottom: insets.bottom + 20 }]}>
-        {/* Mode Selector */}
-        <View style={styles.modeTabs}>
-          <TouchableOpacity
-            style={[styles.modeTab, mode === 'snap' && styles.modeTabActive]}
-            onPress={() => setMode('snap')}
-          >
-            <Text style={[styles.modeTabText, mode === 'snap' && styles.modeTabTextActive]}>Snap</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.modeTab, mode === 'barcode' && styles.modeTabActive]}
-            onPress={() => setMode('barcode')}
-          >
-            <Text style={[styles.modeTabText, mode === 'barcode' && styles.modeTabTextActive]}>
-              Barcode
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.modeTab, mode === 'describe' && styles.modeTabActive]}
-            onPress={() => setMode('describe')}
-          >
-            <Text style={[styles.modeTabText, mode === 'describe' && styles.modeTabTextActive]}>
-              Describe
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Shutter Row for Snap mode */}
+      {/* Bottom Controls Bar */}
+      <View style={[styles.bottomControls, { paddingBottom: Math.max(insets.bottom, 16) + 10 }]}>
+        {/* Shutter / Gallery controls (only for snap mode) */}
         {mode === 'snap' && (
           <View style={styles.shutterRow}>
-            <TouchableOpacity style={styles.sideControlBtn} onPress={handlePickFromGallery}>
-              <ImageIcon size={26} color={colors.text} />
-            </TouchableOpacity>
-
             <TouchableOpacity
-              style={styles.shutterBtnOuter}
-              activeOpacity={0.8}
-              onPress={handleCapturePhoto}
+              style={styles.galleryBtn}
+              onPress={handlePickFromGallery}
+              accessibilityRole="button"
+              accessibilityLabel="Choose from photo gallery"
             >
-              <View style={styles.shutterBtnInner} />
+              <ImageIcon size={24} color="#FFFFFF" />
             </TouchableOpacity>
 
-            <View style={{ width: 44 }} />
+            {/* Large white shutter button centered */}
+            <TouchableOpacity
+              style={styles.shutterBtn}
+              onPress={handleCapturePhoto}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Take photo"
+            >
+              <View style={styles.shutterInner} />
+            </TouchableOpacity>
+
+            <View style={styles.galleryPlaceholder} />
           </View>
         )}
+
+        {/* Segmented Control: Photo / Barcode / Describe */}
+        <View style={styles.segmentedRow}>
+          <TouchableOpacity
+            style={[styles.modeSegment, mode === 'snap' && styles.modeSegmentOn]}
+            onPress={() => setMode('snap')}
+          >
+            <Text style={[styles.modeText, mode === 'snap' && styles.modeTextOn]}>Photo</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeSegment, mode === 'barcode' && styles.modeSegmentOn]}
+            onPress={() => setMode('barcode')}
+          >
+            <Text style={[styles.modeText, mode === 'barcode' && styles.modeTextOn]}>Barcode</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeSegment, mode === 'describe' && styles.modeSegmentOn]}
+            onPress={() => setMode('describe')}
+          >
+            <Text style={[styles.modeText, mode === 'describe' && styles.modeTextOn]}>Describe</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -474,359 +465,333 @@ export default function CaptureScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
   },
-  cameraWrapper: {
+  permissionContainer: {
     flex: 1,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    gap: 16,
+  },
+  permissionTitle: {
+    fontFamily: font.bold,
+    fontSize: 24,
+    color: colors.text,
+    letterSpacing: -0.5,
+  },
+  permissionSub: {
+    fontFamily: font.regular,
+    fontSize: 15,
+    color: colors.textDim,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  permissionBtn: {
+    height: 56,
+    paddingHorizontal: 32,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  permissionBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: '#000000',
+  },
+  textBtn: {
+    paddingVertical: 10,
+  },
+  textBtnText: {
+    fontFamily: font.medium,
+    fontSize: 16,
+    color: colors.textDim,
   },
   topBar: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 30,
-    left: 0,
-    right: 0,
-    zIndex: 10,
+    left: 20,
+    right: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl,
     alignItems: 'center',
+    zIndex: 10,
   },
-  topActions: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  topBtn: {
+  topCircleBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bottomControlsContainer: {
+  topRightActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  bottomControls: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 40 : 24,
     left: 0,
     right: 0,
+    bottom: 0,
     alignItems: 'center',
-    gap: spacing.lg,
-  },
-  modeTabs: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    borderRadius: radii.pill,
-    padding: 4,
-    gap: 4,
-  },
-  modeTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-  },
-  modeTabActive: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  modeTabText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textDim,
-  },
-  modeTabTextActive: {
-    color: colors.text,
-    fontWeight: '700',
+    gap: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingTop: 16,
   },
   shutterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     width: '100%',
-    paddingHorizontal: spacing.xxl,
+    paddingHorizontal: 36,
   },
-  sideControlBtn: {
+  galleryBtn: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
   },
-  shutterBtnOuter: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+  galleryPlaceholder: {
+    width: 48,
+  },
+  shutterBtn: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     borderWidth: 4,
-    borderColor: colors.text,
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 3,
   },
-  shutterBtnInner: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: colors.text,
+  shutterInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 35,
+    backgroundColor: '#FFFFFF',
   },
-  // Describe mode
-  describeContainer: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    paddingTop: 100,
-    paddingHorizontal: spacing.xl,
+  segmentedRow: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(28, 28, 30, 0.85)',
+    borderRadius: radii.pill,
+    padding: 4,
   },
-  describeHeader: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: colors.text,
+  modeSegment: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
   },
-  describeSub: {
+  modeSegmentOn: {
+    backgroundColor: '#FFFFFF',
+  },
+  modeText: {
+    fontFamily: font.medium,
     fontSize: 14,
     color: colors.textDim,
-    marginTop: 4,
-    marginBottom: spacing.lg,
+  },
+  modeTextOn: {
+    fontFamily: font.semibold,
+    color: '#000000',
+  },
+  describeView: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingBottom: 110,
+    gap: 16,
+  },
+  describeTitle: {
+    fontFamily: font.bold,
+    fontSize: 28,
+    color: colors.text,
+    letterSpacing: -0.6,
+  },
+  describeSub: {
+    fontFamily: font.regular,
+    fontSize: 16,
+    color: colors.textDim,
+    lineHeight: 22,
   },
   describeInput: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    padding: spacing.lg,
+    padding: 16,
+    fontFamily: font.regular,
+    fontSize: 17,
     color: colors.text,
-    fontSize: 16,
     minHeight: 120,
     textAlignVertical: 'top',
   },
-  mealTypeLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMute,
-    letterSpacing: 0.8,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  mealTypeRow: {
+  mealChipsRow: {
     flexDirection: 'row',
     gap: 8,
   },
-  mealTypeChip: {
+  mealChip: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: radii.button,
+    borderRadius: 10,
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
     alignItems: 'center',
   },
-  mealTypeChipActive: {
-    borderColor: colors.accent,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+  mealChipOn: {
+    backgroundColor: colors.control,
   },
-  mealTypeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMute,
+  mealChipText: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.textDim,
   },
-  mealTypeTextActive: {
-    color: colors.accent,
+  mealChipTextOn: {
+    color: colors.text,
+    fontFamily: font.semibold,
   },
   analyzeBtn: {
-    backgroundColor: colors.profit,
-    borderRadius: radii.button,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: spacing.xl,
-  },
-  analyzeBtnText: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#000',
-  },
-  // Barcode overlay
-  barcodeOverlay: {
-    ...StyleSheet.absoluteFill,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  barcodeTargetBox: {
+  analyzeBtnDisabled: {
+    opacity: 0.35,
+  },
+  analyzeBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: '#000000',
+  },
+  barcodeOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  scanFrame: {
     width: 250,
-    height: 160,
-    position: 'relative',
+    height: 250,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    backgroundColor: 'transparent',
   },
-  corner: {
-    position: 'absolute',
-    width: 24,
-    height: 24,
-    borderColor: colors.profit,
-  },
-  cornerTL: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3 },
-  cornerTR: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3 },
-  cornerBL: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 },
-  cornerBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 },
-  barcodeGuideText: {
-    color: colors.text,
-    fontSize: 13,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radii.pill,
+  scanHint: {
+    fontFamily: font.medium,
+    fontSize: 15,
+    color: '#FFFFFF',
     marginTop: 20,
-    fontWeight: '500',
+    textAlign: 'center',
   },
-  productSheet: {
+  barcodeLoadingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radii.pill,
+    marginTop: 16,
+  },
+  barcodeLoadingText: {
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  barcodeErrorBadge: {
+    backgroundColor: 'rgba(28, 28, 30, 0.95)',
+    borderRadius: radii.card,
+    padding: 16,
+    marginTop: 20,
+    alignItems: 'center',
+    gap: 12,
+  },
+  barcodeErrorText: {
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  switchModePill: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+  },
+  switchModePillText: {
+    fontFamily: font.semibold,
+    fontSize: 13,
+    color: '#000000',
+  },
+  barcodeResultSheet: {
     position: 'absolute',
     bottom: 120,
-    left: spacing.lg,
-    right: spacing.lg,
+    left: 20,
+    right: 20,
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  productSheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    padding: 20,
+    gap: 12,
   },
   productName: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontFamily: font.bold,
+    fontSize: 18,
     color: colors.text,
   },
   productBrand: {
-    fontSize: 13,
+    fontFamily: font.regular,
+    fontSize: 14,
     color: colors.textDim,
-    marginTop: 2,
+    marginTop: -8,
   },
-  productNutritionRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
-    marginVertical: spacing.md,
-  },
-  productCalText: {
-    fontSize: 24,
-    fontWeight: '800',
+  productKcal: {
+    fontFamily: font.semibold,
+    fontSize: 16,
     color: colors.text,
   },
-  productServingLabel: {
-    fontSize: 13,
-    color: colors.textMute,
-  },
-  servingStepperRow: {
+  servingsStepperRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.md,
   },
-  stepperLabel: {
-    fontSize: 14,
+  servingsStepperLabel: {
+    fontFamily: font.medium,
+    fontSize: 15,
     color: colors.textDim,
   },
-  stepperControls: {
+  stepperWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   stepperBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: colors.cardAlt,
+    backgroundColor: colors.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepperValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  logBarcodeBtn: {
-    backgroundColor: colors.profit,
-    borderRadius: radii.button,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  logBarcodeBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000',
-  },
-  notFoundSheet: {
-    position: 'absolute',
-    bottom: 120,
-    left: spacing.lg,
-    right: spacing.lg,
-    backgroundColor: colors.card,
-    borderRadius: radii.card,
-    padding: spacing.lg,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.loss,
-    gap: 12,
-  },
-  notFoundTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  switchModeBtn: {
-    backgroundColor: colors.profit,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radii.button,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  switchModeBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#000',
-  },
-  // Permission
-  permissionContainer: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xxl,
-  },
-  permissionTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: colors.text,
-    marginTop: spacing.lg,
-  },
-  permissionSub: {
-    fontSize: 14,
-    color: colors.textDim,
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: spacing.xl,
-    lineHeight: 20,
-  },
-  permissionBtn: {
-    backgroundColor: colors.profit,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: radii.button,
-    width: '100%',
-    alignItems: 'center',
-  },
-  permissionBtnText: {
+  stepperVal: {
+    fontFamily: font.semibold,
     fontSize: 16,
-    fontWeight: '800',
-    color: '#000',
+    color: colors.text,
+    minWidth: 24,
+    textAlign: 'center',
   },
-  closePermissionBtn: {
-    marginTop: spacing.md,
-    padding: spacing.md,
+  addBarcodeBtn: {
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
   },
-  closePermissionBtnText: {
-    fontSize: 14,
-    color: colors.textMute,
-    fontWeight: '600',
+  addBarcodeBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 16,
+    color: '#000000',
   },
 });

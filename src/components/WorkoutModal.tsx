@@ -8,9 +8,12 @@ import {
   ScrollView,
   TextInput,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
-import { colors, radii, spacing } from '../theme/tokens';
-import { X, Plus, Trash2, Flame, Clock } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
+import { X, Trash2 } from 'lucide-react-native';
 import { useWorkouts, useLogWorkout, useDeleteWorkout } from '../api/queries';
 
 interface WorkoutModalProps {
@@ -22,7 +25,7 @@ interface WorkoutModalProps {
 const WORKOUT_TYPES = [
   'Walking',
   'Running',
-  'Gym/Strength',
+  'Gym',
   'Yoga',
   'Cricket',
   'Badminton',
@@ -31,11 +34,13 @@ const WORKOUT_TYPES = [
   'Dance',
 ];
 
+const DURATIONS = [15, 30, 45, 60, 90];
+
 export const WorkoutModal: React.FC<WorkoutModalProps> = ({ visible, onClose, date }) => {
+  const insets = useSafeAreaInsets();
   const [selectedType, setSelectedType] = useState('Walking');
   const [duration, setDuration] = useState(30);
   const [caloriesOverride, setCaloriesOverride] = useState('');
-  const [notes, setNotes] = useState('');
 
   const { data: workoutsData, isLoading: isLoadingWorkouts } = useWorkouts(date);
   const logWorkoutMutation = useLogWorkout();
@@ -49,12 +54,10 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({ visible, onClose, da
         durationMin: duration,
         caloriesBurned: isNaN(customBurn as any) ? undefined : customBurn,
         date,
-        notes: notes.trim() || undefined,
       },
       {
         onSuccess: () => {
           setCaloriesOverride('');
-          setNotes('');
         },
       }
     );
@@ -64,25 +67,29 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({ visible, onClose, da
     deleteWorkoutMutation.mutate(id);
   };
 
+  const workouts = workoutsData?.workouts || [];
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheetContainer}>
-          {/* Header */}
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+      <View style={styles.sheetWrap} pointerEvents="box-none">
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
+          <View style={styles.handle} />
+
           <View style={styles.header}>
-            <View>
-              <Text style={styles.headerTitle}>Log a Workout</Text>
-              <Text style={styles.headerSub}>Calories you burn are added to today’s budget.</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Log a Workout</Text>
+              <Text style={styles.subtitle}>Calories you burn are added to today’s budget.</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <X size={20} color={colors.textDim} />
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} accessibilityLabel="Close">
+              <X size={22} color={colors.textDim} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {/* Workout Type Chips */}
-            <Text style={styles.sectionLabel}>ACTIVITY TYPE</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+            {/* Activity chips */}
+            <Text style={styles.sectionLabel}>Activity</Text>
+            <View style={styles.chipsWrap}>
               {WORKOUT_TYPES.map((type) => {
                 const isSelected = selectedType === type;
                 return (
@@ -90,94 +97,86 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({ visible, onClose, da
                     key={type}
                     style={[styles.chip, isSelected && styles.chipSelected]}
                     onPress={() => setSelectedType(type)}
+                    activeOpacity={0.7}
                   >
                     <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{type}</Text>
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
-
-            {/* Duration Stepper */}
-            <Text style={styles.sectionLabel}>DURATION (MINUTES)</Text>
-            <View style={styles.stepperContainer}>
-              {[15, 30, 45, 60, 90].map((d) => (
-                <TouchableOpacity
-                  key={d}
-                  style={[styles.durationBtn, duration === d && styles.durationBtnSelected]}
-                  onPress={() => setDuration(d)}
-                >
-                  <Text style={[styles.durationBtnText, duration === d && styles.durationBtnTextSelected]}>
-                    {d}m
-                  </Text>
-                </TouchableOpacity>
-              ))}
             </View>
 
-            {/* Optional Calorie Override */}
-            <View style={styles.inputRow}>
-              <View style={styles.inputCol}>
-                <Text style={styles.sectionLabel}>CALORIES BURNED (OPTIONAL)</Text>
-                <TextInput
-                  style={styles.input}
-                  keyboardType="numeric"
-                  placeholder="Auto-estimated if empty"
-                  placeholderTextColor={colors.textMute}
-                  value={caloriesOverride}
-                  onChangeText={setCaloriesOverride}
-                />
-              </View>
+            {/* Duration chips */}
+            <Text style={styles.sectionLabel}>Duration</Text>
+            <View style={styles.durationRow}>
+              {DURATIONS.map((d) => {
+                const isSelected = duration === d;
+                return (
+                  <TouchableOpacity
+                    key={d}
+                    style={[styles.durationChip, isSelected && styles.chipSelected]}
+                    onPress={() => setDuration(d)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+                      {d} min
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            {/* Add Workout Button */}
+            {/* Calories burned field */}
+            <Text style={styles.sectionLabel}>Calories burned</Text>
+            <TextInput
+              style={styles.input}
+              keyboardType="numeric"
+              placeholder="Auto-estimated"
+              placeholderTextColor={colors.textMute}
+              value={caloriesOverride}
+              onChangeText={setCaloriesOverride}
+              selectionColor="#FFFFFF"
+            />
+
+            {/* White Log Workout button */}
             <TouchableOpacity
-              style={styles.addBtn}
+              style={styles.logBtn}
               onPress={handleLog}
               disabled={logWorkoutMutation.isPending}
+              activeOpacity={0.85}
             >
               {logWorkoutMutation.isPending ? (
-                <ActivityIndicator color={colors.bg} size="small" />
+                <ActivityIndicator color="#000000" size="small" />
               ) : (
-                <>
-                  <Plus size={18} color="#000" />
-                  <Text style={styles.addBtnText}>Log Workout (+Bonus)</Text>
-                </>
+                <Text style={styles.logBtnText}>Log Workout</Text>
               )}
             </TouchableOpacity>
 
-            {/* Today's Logged Workouts */}
-            <Text style={[styles.sectionLabel, { marginTop: spacing.xl }]}>TODAY'S LOGGED WORKOUTS</Text>
-            {isLoadingWorkouts ? (
-              <ActivityIndicator color={colors.accent} style={{ marginVertical: 12 }} />
-            ) : workoutsData?.workouts && workoutsData.workouts.length > 0 ? (
-              workoutsData.workouts.map((w) => (
-                <View key={w.id} style={styles.workoutItem}>
-                  <View style={styles.workoutLeft}>
-                    <View style={styles.workoutIcon}>
-                      <Flame size={16} color={colors.accent} />
-                    </View>
-                    <View>
-                      <Text style={styles.workoutType}>{w.type}</Text>
-                      <View style={styles.workoutMeta}>
-                        <Clock size={12} color={colors.textMute} />
-                        <Text style={styles.workoutDuration}>{w.durationMin} mins</Text>
+            {/* Today's workouts list */}
+            {workouts.length > 0 && (
+              <View style={styles.listSection}>
+                <Text style={styles.sectionLabel}>Today</Text>
+                <View style={styles.group}>
+                  {workouts.map((w, idx) => (
+                    <View key={w.id} style={styles.workoutRowWrap}>
+                      <View style={styles.workoutRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.workoutName}>{w.type}</Text>
+                          <Text style={styles.workoutSub}>{w.durationMin} min</Text>
+                        </View>
+                        <Text style={styles.workoutKcal}>+{w.caloriesBurned} kcal</Text>
+                        <TouchableOpacity
+                          onPress={() => handleDelete(w.id)}
+                          style={styles.deleteBtn}
+                          accessibilityLabel={`Delete ${w.type} workout`}
+                        >
+                          <Trash2 size={18} color={colors.loss} />
+                        </TouchableOpacity>
                       </View>
+                      {idx < workouts.length - 1 && <View style={styles.separator} />}
                     </View>
-                  </View>
-
-                  <View style={styles.workoutRight}>
-                    <Text style={styles.workoutKcal}>+{w.caloriesBurned} kcal</Text>
-                    <TouchableOpacity
-                      onPress={() => handleDelete(w.id)}
-                      disabled={deleteWorkoutMutation.isPending}
-                      style={styles.deleteBtn}
-                    >
-                      <Trash2 size={16} color={colors.loss} />
-                    </TouchableOpacity>
-                  </View>
+                  ))}
                 </View>
-              ))
-            ) : (
-              <Text style={styles.emptyText}>No workouts logged for this day yet.</Text>
+              </View>
             )}
           </ScrollView>
         </View>
@@ -187,189 +186,153 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({ visible, onClose, da
 };
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    justifyContent: 'flex-end',
-  },
-  sheetContainer: {
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.65)' },
+  sheetWrap: { flex: 1, justifyContent: 'flex-end' },
+  sheet: {
     backgroundColor: colors.card,
-    borderTopLeftRadius: radii.card,
-    borderTopRightRadius: radii.card,
-    padding: spacing.xl,
-    maxHeight: '85%',
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 24,
+    paddingTop: 10,
+    maxHeight: '90%',
   },
+  handle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: 16 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+  title: {
+    fontFamily: font.bold,
+    fontSize: 24,
     color: colors.text,
+    letterSpacing: -0.5,
   },
-  headerSub: {
-    fontSize: 13,
+  subtitle: {
+    fontFamily: font.regular,
+    fontSize: 14,
     color: colors.textDim,
-    marginTop: 2,
+    marginTop: 4,
   },
   closeBtn: {
-    padding: 6,
-    borderRadius: radii.pill,
-    backgroundColor: colors.cardAlt,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollContent: {
-    marginBottom: spacing.lg,
+    gap: 12,
   },
   sectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textMute,
-    letterSpacing: 0.8,
-    marginBottom: spacing.sm,
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.textDim,
+    letterSpacing: -0.1,
+    marginTop: 4,
   },
-  chipsScroll: {
+  chipsWrap: {
     flexDirection: 'row',
-    marginBottom: spacing.lg,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   chip: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: radii.pill,
-    backgroundColor: colors.cardAlt,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.control,
   },
   chipSelected: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
+    backgroundColor: '#FFFFFF',
   },
   chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textDim,
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.text,
+    letterSpacing: -0.1,
   },
   chipTextSelected: {
-    color: '#000',
-    fontWeight: '700',
+    color: '#000000',
   },
-  stepperContainer: {
+  durationRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: spacing.lg,
   },
-  durationBtn: {
+  durationChip: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: radii.button,
-    backgroundColor: colors.cardAlt,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  durationBtnSelected: {
-    backgroundColor: colors.text,
-    borderColor: colors.text,
-  },
-  durationBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textDim,
-  },
-  durationBtnTextSelected: {
-    color: colors.bg,
-    fontWeight: '700',
-  },
-  inputRow: {
-    marginBottom: spacing.lg,
-  },
-  inputCol: {
-    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.control,
   },
   input: {
-    backgroundColor: colors.cardAlt,
+    backgroundColor: colors.control,
     borderRadius: radii.input,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 12,
+    fontFamily: font.regular,
+    fontSize: 16,
     color: colors.text,
-    fontSize: 15,
   },
-  addBtn: {
-    backgroundColor: colors.profit,
-    borderRadius: radii.button,
-    paddingVertical: 14,
-    flexDirection: 'row',
+  logBtn: {
+    marginTop: 10,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  logBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: '#000000',
+  },
+  listSection: {
+    marginTop: 12,
     gap: 8,
   },
-  addBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#000',
+  group: {
+    backgroundColor: colors.control,
+    borderRadius: radii.card,
+    overflow: 'hidden',
   },
-  workoutItem: {
+  workoutRowWrap: {
+    position: 'relative',
+  },
+  workoutRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  workoutLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
   },
-  workoutIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  workoutType: {
-    fontSize: 15,
-    fontWeight: '700',
+  workoutName: {
+    fontFamily: font.semibold,
+    fontSize: 16,
     color: colors.text,
   },
-  workoutMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  workoutSub: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textDim,
     marginTop: 2,
   },
-  workoutDuration: {
-    fontSize: 12,
-    color: colors.textMute,
-  },
-  workoutRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
   workoutKcal: {
+    fontFamily: font.semibold,
     fontSize: 15,
-    fontWeight: '700',
     color: colors.profit,
     fontVariant: ['tabular-nums'],
   },
   deleteBtn: {
     padding: 6,
   },
-  emptyText: {
-    fontSize: 13,
-    color: colors.textMute,
-    fontStyle: 'italic',
-    marginVertical: 8,
+  separator: {
+    position: 'absolute',
+    left: 16,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
   },
 });
-

@@ -10,20 +10,23 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
-import { colors, radii, spacing, typography } from '../../src/theme/tokens';
+import { colors, radii } from '../../src/theme/tokens';
+import { font } from '../../src/theme/fonts';
 import { api } from '../../src/api/client';
 import { useMeal, usePatchMeal, useDeleteMeal, useEditMealItems } from '../../src/api/queries';
-import { PnlBadge } from '../../src/components/PnlBadge';
 import { ClarifyChips } from '../../src/components/ClarifyChips';
 import { ItemEditor, previewRow, rowsFromIngredients, type ItemRow, type Preview } from '../../src/components/ItemEditor';
 import { CorrectionSheet } from '../../src/components/CorrectionSheet';
-import { X, Check, Trash2, Edit3, Plus, Minus, ArrowLeft, Quote, Sparkles, AlertCircle } from 'lucide-react-native';
+import { ChevronLeft, Trash2, Plus, Minus } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { MealType } from '../../src/api/hisaabApi';
 
+const MEAL_SLOTS: MealType[] = ['breakfast', 'lunch', 'snack', 'dinner'];
+
 export default function MealDetailScreen() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: mealData, isLoading, error } = useMeal(id!);
   const patchMealMutation = usePatchMeal();
@@ -36,7 +39,6 @@ export default function MealDetailScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [correcting, setCorrecting] = useState(false);
   const [dishName, setDishName] = useState('');
-  // Edit mode edits ITEMS; totals are always calculated from them (never typed).
   const [rows, setRows] = useState<ItemRow[]>([]);
   const [servings, setServings] = useState(1);
   const [mealType, setMealType] = useState<MealType>('lunch');
@@ -52,9 +54,9 @@ export default function MealDetailScreen() {
   if (error && !meal) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.dishName}>Meal not found</Text>
-        <TouchableOpacity style={[styles.circleBtn, { marginTop: spacing.lg }]} onPress={() => router.back()}>
-          <ArrowLeft size={20} color={colors.text} />
+        <Text style={styles.errorText}>Meal not found</Text>
+        <TouchableOpacity style={styles.circleBtn} onPress={() => router.back()}>
+          <ChevronLeft size={24} color={colors.text} />
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -63,7 +65,7 @@ export default function MealDetailScreen() {
   if (isLoading || !meal) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator color={colors.accent} size="large" />
+        <ActivityIndicator color={colors.textDim} size="large" />
       </SafeAreaView>
     );
   }
@@ -77,7 +79,7 @@ export default function MealDetailScreen() {
     setIsEditing(true);
   };
 
-  // Live preview of what the server will calculate (null rows = new/renamed, AI on save).
+  // Live preview of what the server will calculate
   const previews = rows.map((r) => previewRow(r, meal.ingredients));
   const pendingCount = isEditing ? previews.filter((p) => p === null).length : 0;
   const r1 = (n: number) => Math.round(n * 10) / 10;
@@ -94,7 +96,7 @@ export default function MealDetailScreen() {
   const handleSaveItems = () => {
     const cleaned = rows.map((r) => ({ ...r, name: r.name.trim() }));
     if (!cleaned.length) {
-      Alert.alert('Add at least one item', 'A meal needs at least one item. Use the trash icon to delete the meal.');
+      Alert.alert('Add at least one item', 'A meal needs at least one item.');
       return;
     }
     if (cleaned.some((r) => !r.name)) {
@@ -151,191 +153,227 @@ export default function MealDetailScreen() {
     ]);
   };
 
+  const timeFormatted = meal.loggedAt
+    ? new Date(meal.loggedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : '';
+  const mealTypeFormatted = meal.mealType
+    ? meal.mealType.charAt(0).toUpperCase() + meal.mealType.slice(1)
+    : '';
+  const subline = [mealTypeFormatted, timeFormatted].filter(Boolean).join(', ');
+
+  // P&L vs this meal's share of the daily budget (not the whole day)
+  let profitLine: string | null = null;
+  let profitColor: string = colors.textDim;
+  if (meal.hisaab) {
+    const slot = meal.mealType || 'this meal';
+    const kcalAmt = Math.abs(meal.hisaab.amount);
+    if (meal.hisaab.status === 'PROFIT') {
+      profitLine = `In profit for ${slot} by ${kcalAmt} kcal`;
+      profitColor = colors.profit;
+    } else if (meal.hisaab.status === 'LOSS') {
+      profitLine = `In loss for ${slot} by ${kcalAmt} kcal`;
+      profitColor = colors.loss;
+    } else {
+      profitLine = `Right on budget for ${slot}`;
+    }
+  }
+  const healthScore = meal.healthScore > 0 ? Math.min(10, meal.healthScore) : null;
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Top Bar */}
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.circleBtn} onPress={() => router.back()}>
-          <ArrowLeft size={20} color={colors.text} />
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Nav Bar */}
+      <View style={styles.navBar}>
+        <TouchableOpacity
+          style={styles.navBtn}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
+          <ChevronLeft size={28} color={colors.text} strokeWidth={2.4} />
         </TouchableOpacity>
-        <Text style={styles.screenTitle}>{isEditing ? 'Fix Results' : 'Meal Details'}</Text>
-        <TouchableOpacity style={styles.circleBtn} onPress={handleDelete}>
-          <Trash2 size={18} color={colors.loss} />
+        <Text style={styles.navTitle}>Meal</Text>
+        <TouchableOpacity
+          style={styles.navBtn}
+          onPress={handleDelete}
+          accessibilityRole="button"
+          accessibilityLabel="Delete meal"
+        >
+          <Trash2 size={20} color={colors.loss} />
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Photo header if available */}
+        {/* Photo at top, 4:3 ratio, 20 pt corners */}
         {imageUrl && (
-          <View style={styles.imageWrapper}>
-            <Image source={{ uri: imageUrl }} style={styles.mealImage} resizeMode="cover" />
-            {meal.hisaab && (
-              <View style={styles.imagePnlBadge}>
-                <PnlBadge pnl={meal.hisaab} size="md" />
-              </View>
-            )}
+          <View style={styles.imageContainer}>
+            <Image source={{ uri: imageUrl }} style={styles.photo} resizeMode="cover" />
           </View>
         )}
 
-        {/* P1: "How many skewers?" */}
-        {!isEditing && meal.clarify ? <ClarifyChips meal={meal} variant="card" /> : null}
-
-        {/* Dish Name & Meal Type */}
-        <View style={styles.sectionCard}>
+        {/* Meal Name & Subline */}
+        <View style={styles.titleSection}>
           {isEditing ? (
-            <View>
-              <Text style={styles.editLabel}>DISH NAME</Text>
+            <>
               <TextInput
-                style={styles.textInput}
+                style={styles.editTitleInput}
                 value={dishName}
                 onChangeText={setDishName}
                 placeholder="Dish name"
                 placeholderTextColor={colors.textMute}
+                selectionColor="#FFFFFF"
               />
-            </View>
-          ) : (
-            <View style={styles.dishHeaderRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dishName}>{meal.dishName}</Text>
-                <Text style={styles.mealTypeBadge}>{meal.mealType.toUpperCase()}</Text>
+              <View style={styles.slotRow} accessibilityRole="radiogroup">
+                {MEAL_SLOTS.map((t) => {
+                  const on = mealType === t;
+                  return (
+                    <TouchableOpacity
+                      key={t}
+                      style={[styles.slotChip, on && styles.slotChipOn]}
+                      onPress={() => setMealType(t)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: on }}
+                    >
+                      <Text style={[styles.slotChipText, on && styles.slotChipTextOn]}>
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-              {meal.edited && (
-                <View style={styles.editedTag}>
-                  <Text style={styles.editedTagText}>Edited</Text>
-                </View>
-              )}
-            </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.dishName}>{meal.dishName}</Text>
+              <Text style={styles.subline}>{subline}</Text>
+            </>
           )}
+        </View>
 
-          {/* Servings Stepper (0.5x - 5x) — hidden while editing items */}
-          {!isEditing && <View style={styles.servingsRow}>
-            <Text style={styles.servingsLabel}>Portion Size:</Text>
-            <View style={styles.stepperContainer}>
+        {/* Big kcal + profit line */}
+        <View style={styles.caloriesSection}>
+          <Text style={styles.bigKcal}>{shown.calories} kcal</Text>
+          {profitLine && !isEditing && (
+            <Text style={[styles.profitLine, { color: profitColor }]}>
+              {profitLine}
+            </Text>
+          )}
+          {isEditing && (
+            <Text style={styles.previewNote}>Totals are calculated from the items</Text>
+          )}
+          {pendingCount > 0 && (
+            <Text style={styles.pendingNote}>
+              + {pendingCount} item{pendingCount > 1 ? 's' : ''} the AI will calculate when you save
+            </Text>
+          )}
+        </View>
+
+        {/* Three Macro Tiles: Protein, Carbs, Fat */}
+        <View style={styles.macroTilesRow}>
+          <View style={styles.macroTile}>
+            <Text style={styles.macroTileLabel}>Protein</Text>
+            <Text style={[styles.macroTileValue, { color: colors.protein }]}>{shown.proteinG} g</Text>
+          </View>
+          <View style={styles.macroTile}>
+            <Text style={styles.macroTileLabel}>Carbs</Text>
+            <Text style={[styles.macroTileValue, { color: colors.carbs }]}>{shown.carbsG} g</Text>
+          </View>
+          <View style={styles.macroTile}>
+            <Text style={styles.macroTileLabel}>Fat</Text>
+            <Text style={[styles.macroTileValue, { color: colors.fat }]}>{shown.fatG} g</Text>
+          </View>
+        </View>
+
+        {/* QUESTION CARD (shows when meal.clarify is present) */}
+        {!isEditing && meal.clarify ? (
+          <ClarifyChips meal={meal} variant="card" />
+        ) : null}
+
+        {/* Items: edit mode or read-only list */}
+        {isEditing ? (
+          <ItemEditor rows={rows} original={meal.ingredients} onChange={setRows} />
+        ) : (
+          <View style={styles.sectionWrap}>
+            <Text style={styles.sectionHeader}>What’s in it</Text>
+            <View style={styles.groupedList}>
+              {meal.ingredients.map((item, idx) => (
+                <View key={idx} style={styles.ingredientRowWrap}>
+                  <View style={styles.ingredientRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.ingredientName}>{item.name}</Text>
+                      {item.quantity || item.grams ? (
+                        <Text style={styles.ingredientDetail}>
+                          {[item.quantity, item.grams && item.quantity !== `${item.grams} g` ? `${item.grams} g` : null]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text style={styles.ingredientKcal}>{item.calories} kcal</Text>
+                  </View>
+                  {idx < meal.ingredients.length - 1 && <View style={styles.separator} />}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Portion stepper (hidden during editing) */}
+        {!isEditing && (
+          <View style={styles.portionRow}>
+            <Text style={styles.portionLabel}>Portion {servings}×</Text>
+            <View style={styles.stepperWrap}>
               <TouchableOpacity
                 style={styles.stepperBtn}
                 onPress={() => handleServingsChange(servings - 0.5)}
+                accessibilityLabel="Decrease portion"
               >
-                <Minus size={16} color={colors.text} />
+                <Minus size={18} color={colors.text} strokeWidth={2.4} />
               </TouchableOpacity>
-              <Text style={styles.stepperVal}>{servings}x</Text>
               <TouchableOpacity
                 style={styles.stepperBtn}
                 onPress={() => handleServingsChange(servings + 0.5)}
+                accessibilityLabel="Increase portion"
               >
-                <Plus size={16} color={colors.text} />
+                <Plus size={18} color={colors.text} strokeWidth={2.4} />
               </TouchableOpacity>
             </View>
-          </View>}
-
-          {/* Meal Type Chips (when editing) */}
-          {isEditing && (
-            <View style={{ marginTop: spacing.md }}>
-              <Text style={styles.editLabel}>MEAL SLOT</Text>
-              <View style={styles.mealTypeRow}>
-                {(['breakfast', 'lunch', 'snack', 'dinner'] as const).map((t) => (
-                  <TouchableOpacity
-                    key={t}
-                    style={[styles.typeChip, mealType === t && styles.typeChipActive]}
-                    onPress={() => setMealType(t)}
-                  >
-                    <Text style={[styles.typeChipText, mealType === t && styles.typeChipTextActive]}>
-                      {t.toUpperCase()}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Calories & macros: always the sum of the items (live preview while editing) */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionHeader}>CALORIES & MACROS</Text>
-          <View style={styles.calorieRow}>
-            <View style={styles.calDisplay}>
-              <Text style={styles.calNumber}>{shown.calories}</Text>
-              <Text style={styles.calUnit}>kcal</Text>
-            </View>
           </View>
-          {pendingCount > 0 ? (
-            <Text style={styles.previewNote}>
-              + {pendingCount} item{pendingCount > 1 ? 's' : ''} the AI will calculate when you save
-            </Text>
-          ) : null}
+        )}
 
-          <View style={styles.macroTilesRow}>
-            <View style={[styles.macroTile, { borderColor: 'rgba(248, 113, 113, 0.4)' }]}>
-              <Text style={[styles.macroTileLabel, { color: colors.protein }]}>Protein</Text>
-              <Text style={styles.macroTileVal}>{shown.proteinG}g</Text>
-            </View>
-            <View style={[styles.macroTile, { borderColor: 'rgba(251, 191, 36, 0.4)' }]}>
-              <Text style={[styles.macroTileLabel, { color: colors.carbs }]}>Carbs</Text>
-              <Text style={styles.macroTileVal}>{shown.carbsG}g</Text>
-            </View>
-            <View style={[styles.macroTile, { borderColor: 'rgba(96, 165, 250, 0.4)' }]}>
-              <Text style={[styles.macroTileLabel, { color: colors.fat }]}>Fat</Text>
-              <Text style={styles.macroTileVal}>{shown.fatG}g</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Health Score Bar */}
-        <View style={styles.sectionCard}>
-          <View style={styles.healthScoreHeader}>
-            <Text style={styles.sectionHeader}>HEALTH SCORE</Text>
-            <Text style={styles.healthScoreNumber}>{meal.healthScore || 5}/10</Text>
-          </View>
-          <View style={styles.healthBarTrack}>
-            <View
-              style={[
-                styles.healthBarFill,
-                {
-                  width: `${((meal.healthScore || 5) / 10) * 100}%`,
-                  backgroundColor: (meal.healthScore || 5) >= 7 ? colors.profit : (meal.healthScore || 5) >= 5 ? colors.accent : colors.loss,
-                },
-              ]}
-            />
-          </View>
-        </View>
-
-        {/* Coach's verdict */}
-        {meal.verdict ? (
-          <View style={styles.verdictBubble}>
-            <View style={styles.quoteIconRow}>
-              <Quote size={18} color={colors.accent} />
-              <Text style={styles.verdictTitle}>Coach’s take</Text>
-            </View>
-            <Text style={styles.verdictText}>"{meal.verdict}"</Text>
-          </View>
-        ) : null}
-
-        {/* Items: editable in edit mode, read-only otherwise */}
-        {isEditing ? (
-          <ItemEditor rows={rows} original={meal.ingredients} onChange={setRows} />
-        ) : meal.ingredients && meal.ingredients.length > 0 && (
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionHeader}>ESTIMATED INGREDIENTS</Text>
-            {meal.ingredients.map((ing, idx) => (
-              <View key={idx} style={styles.ingredientRow}>
-                <View style={styles.ingLeft}>
-                  <Text style={styles.ingName}>{ing.name}</Text>
-                  {ing.quantity || ing.grams ? (
-                    <Text style={styles.ingQty}>
-                      {[ing.quantity, ing.grams && ing.quantity !== `${ing.grams} g` ? `${ing.grams} g` : null].filter(Boolean).join(' · ')}
-                    </Text>
-                  ) : null}
+        {/* Health Score + Coach's verdict */}
+        {!isEditing && (healthScore !== null || meal.verdict) && (
+          <View style={styles.healthSection}>
+            {healthScore !== null && (
+              <>
+                <View style={styles.healthScoreRow}>
+                  <Text style={styles.healthScoreLabel}>Health score</Text>
+                  <Text style={styles.healthScoreValue}>{healthScore} of 10</Text>
                 </View>
-                <Text style={styles.ingKcal}>{ing.calories} kcal</Text>
-              </View>
-            ))}
+                <View style={styles.healthBarTrack}>
+                  <View
+                    style={[
+                      styles.healthBarFill,
+                      {
+                        width: `${(healthScore / 10) * 100}%`,
+                        backgroundColor:
+                          healthScore >= 7 ? colors.profit : healthScore >= 4 ? colors.accent : colors.loss,
+                      },
+                    ]}
+                  />
+                </View>
+              </>
+            )}
+            {meal.verdict ? (
+              <Text style={styles.verdictText}>Coach’s take: {meal.verdict}</Text>
+            ) : null}
           </View>
         )}
       </ScrollView>
 
-      {/* Bottom Action Buttons */}
-      <View style={styles.bottomBar}>
+      {/* Bottom Actions */}
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
         {isEditing ? (
-          <View style={styles.editActionsRow}>
+          <View style={styles.editingActions}>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditing(false)}>
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
@@ -345,36 +383,43 @@ export default function MealDetailScreen() {
               disabled={editItemsMutation.isPending}
             >
               {editItemsMutation.isPending ? (
-                <ActivityIndicator color="#000" size="small" />
+                <ActivityIndicator color="#000000" size="small" />
               ) : (
-                <>
-                  <Check size={18} color="#000" />
-                  <Text style={styles.saveBtnText}>Save</Text>
-                </>
+                <Text style={styles.saveBtnText}>Save</Text>
               )}
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={styles.editActionsRow}>
+          <View style={styles.normalActions}>
             <TouchableOpacity
-              style={styles.fixResultsBtn}
-              onPress={() => setCorrecting(true)}
-              accessibilityHint="Tell the AI what the meal really is and recalculate"
+              style={styles.doneBtn}
+              onPress={() => router.back()}
+              accessibilityRole="button"
             >
-              <AlertCircle size={18} color={colors.accent} />
-              <Text style={styles.fixResultsBtnText}>Wrong?</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.fixResultsBtn} onPress={startEditing}>
-              <Edit3 size={18} color={colors.text} />
-              <Text style={styles.fixResultsBtnText}>Edit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.doneBtn} onPress={() => router.back()}>
               <Text style={styles.doneBtnText}>Done</Text>
             </TouchableOpacity>
+            <View style={styles.secondaryActionsRow}>
+              <TouchableOpacity
+                onPress={() => setCorrecting(true)}
+                style={styles.secTextBtn}
+                accessibilityRole="button"
+              >
+                <Text style={styles.secTextBtnText}>Wrong?</Text>
+              </TouchableOpacity>
+              <Text style={styles.secDot}>·</Text>
+              <TouchableOpacity
+                onPress={startEditing}
+                style={styles.secTextBtn}
+                accessibilityRole="button"
+              >
+                <Text style={styles.secTextBtnText}>Edit items</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
 
+      {/* Correction Sheet */}
       <CorrectionSheet
         visible={correcting}
         meal={meal}
@@ -395,368 +440,341 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 16,
   },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  screenTitle: {
+  errorText: {
+    fontFamily: font.semibold,
     fontSize: 17,
-    fontWeight: '700',
     color: colors.text,
   },
   circleBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  navBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    height: 52,
+  },
+  navBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navTitle: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: colors.text,
+  },
   scrollContent: {
-    padding: spacing.xl,
-    paddingBottom: 120,
-    gap: spacing.lg,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 140,
+    gap: 18,
   },
-  imageWrapper: {
-    height: 240,
-    borderRadius: radii.card,
+  imageContainer: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    borderRadius: 20,
     overflow: 'hidden',
-    position: 'relative',
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.card,
   },
-  mealImage: {
+  photo: {
     width: '100%',
     height: '100%',
   },
-  imagePnlBadge: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-  },
-  sectionCard: {
-    backgroundColor: colors.card,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-  },
-  sectionHeader: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textMute,
-    letterSpacing: 0.8,
-    marginBottom: spacing.md,
-  },
-  dishHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+  titleSection: {
+    gap: 4,
   },
   dishName: {
-    fontSize: 22,
-    fontWeight: '800',
+    fontFamily: font.bold,
+    fontSize: 26,
+    lineHeight: 32,
+    letterSpacing: -0.6,
     color: colors.text,
   },
-  mealTypeBadge: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.accent,
-    marginTop: 4,
-  },
-  editedTag: {
-    backgroundColor: colors.cardAlt,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
-  },
-  editedTagText: {
-    fontSize: 11,
-    color: colors.textMute,
-    fontWeight: '600',
-  },
-  servingsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  servingsLabel: {
-    fontSize: 14,
+  subline: {
+    fontFamily: font.regular,
+    fontSize: 15,
     color: colors.textDim,
-    fontWeight: '600',
+    letterSpacing: -0.2,
   },
-  stepperContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  stepperBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.cardAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  stepperVal: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  editLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMute,
-    letterSpacing: 0.8,
-    marginBottom: 6,
-  },
-  textInput: {
-    backgroundColor: colors.cardAlt,
+  editTitleInput: {
+    backgroundColor: colors.card,
     borderRadius: radii.input,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontFamily: font.semibold,
+    fontSize: 20,
     color: colors.text,
-    fontSize: 16,
   },
-  mealTypeRow: {
+  slotRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 6,
+    marginTop: 8,
   },
-  typeChip: {
+  slotChip: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: radii.button,
-    backgroundColor: colors.cardAlt,
+    height: 36,
+    borderRadius: radii.pill,
+    backgroundColor: colors.card,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
+    justifyContent: 'center',
   },
-  typeChipActive: {
-    borderColor: colors.accent,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+  slotChipOn: {
+    backgroundColor: '#FFFFFF',
   },
-  typeChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMute,
+  slotChipText: {
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.textDim,
   },
-  typeChipTextActive: {
-    color: colors.accent,
+  slotChipTextOn: {
+    color: '#000000',
   },
-  calorieRow: {
-    marginBottom: spacing.md,
+  caloriesSection: {
+    gap: 4,
   },
-  calDisplay: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-  },
-  calNumber: {
-    fontSize: 40,
-    fontWeight: '800',
+  bigKcal: {
+    fontFamily: font.bold,
+    fontSize: 38,
+    letterSpacing: -1,
     color: colors.text,
     fontVariant: ['tabular-nums'],
   },
-  calUnit: {
-    fontSize: 18,
-    fontWeight: '600',
+  profitLine: {
+    fontFamily: font.medium,
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  previewNote: {
+    fontFamily: font.regular,
+    fontSize: 14,
     color: colors.textDim,
   },
-  previewNote: { fontSize: 13, color: colors.accent, marginTop: -4, marginBottom: 8 },
+  pendingNote: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.accent,
+  },
   macroTilesRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: 12,
   },
   macroTile: {
     flex: 1,
-    backgroundColor: colors.cardAlt,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    padding: spacing.md,
-    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    padding: 14,
+    gap: 4,
   },
   macroTileLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 4,
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.textDim,
   },
-  macroTileVal: {
-    fontSize: 17,
-    fontWeight: '800',
+  macroTileValue: {
+    fontFamily: font.semibold,
+    fontSize: 18,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.3,
+  },
+  sectionWrap: {
+    gap: 10,
+    marginTop: 4,
+  },
+  sectionHeader: {
+    fontFamily: font.semibold,
+    fontSize: 20,
+    color: colors.text,
+    letterSpacing: -0.4,
+  },
+  groupedList: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    overflow: 'hidden',
+  },
+  ingredientRowWrap: {
+    position: 'relative',
+  },
+  ingredientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  ingredientName: {
+    fontFamily: font.semibold,
+    fontSize: 15,
+    color: colors.text,
+    letterSpacing: -0.2,
+  },
+  ingredientDetail: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textDim,
+    marginTop: 2,
+  },
+  ingredientKcal: {
+    fontFamily: font.medium,
+    fontSize: 14,
     color: colors.text,
     fontVariant: ['tabular-nums'],
   },
-  macroTileInput: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingVertical: 2,
-    textAlign: 'center',
-    width: '100%',
+  separator: {
+    position: 'absolute',
+    left: 16,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
   },
-  healthScoreHeader: {
+  portionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  healthScoreNumber: {
-    fontSize: 14,
-    fontWeight: '800',
+  portionLabel: {
+    fontFamily: font.semibold,
+    fontSize: 16,
     color: colors.text,
   },
+  stepperWrap: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  stepperBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.control,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  healthSection: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    padding: 16,
+    gap: 10,
+  },
+  healthScoreRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  healthScoreLabel: {
+    fontFamily: font.medium,
+    fontSize: 15,
+    color: colors.textDim,
+  },
+  healthScoreValue: {
+    fontFamily: font.semibold,
+    fontSize: 15,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
   healthBarTrack: {
-    height: 6,
-    backgroundColor: colors.cardAlt,
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.control,
     overflow: 'hidden',
   },
   healthBarFill: {
     height: '100%',
-    borderRadius: 3,
-  },
-  verdictBubble: {
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-    borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-    padding: spacing.lg,
-    gap: 8,
-  },
-  quoteIconRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  verdictTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.accent,
-    textTransform: 'uppercase',
+    borderRadius: 2,
   },
   verdictText: {
-    fontSize: 15,
-    fontStyle: 'italic',
-    color: colors.text,
-    lineHeight: 22,
-  },
-  ingredientRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  ingLeft: {},
-  ingName: {
+    fontFamily: font.regular,
     fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  ingQty: {
-    fontSize: 12,
-    color: colors.textMute,
-    marginTop: 2,
-  },
-  ingKcal: {
-    fontSize: 13,
-    fontWeight: '700',
+    lineHeight: 20,
     color: colors.textDim,
-    fontVariant: ['tabular-nums'],
   },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: spacing.xl,
     backgroundColor: colors.bg,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
+    paddingTop: 12,
+    paddingHorizontal: 24,
   },
-  editActionsRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  cancelBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: radii.button,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+  normalActions: {
+    gap: 10,
     alignItems: 'center',
-  },
-  cancelBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textDim,
-  },
-  saveBtn: {
-    flex: 2,
-    paddingVertical: 14,
-    borderRadius: radii.button,
-    backgroundColor: colors.profit,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  saveBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#000',
-  },
-  fixResultsBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: radii.button,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  fixResultsBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
   },
   doneBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: radii.button,
-    backgroundColor: colors.text,
+    width: '100%',
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   doneBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.bg,
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: '#000000',
+  },
+  secondaryActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  secTextBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  secTextBtnText: {
+    fontFamily: font.medium,
+    fontSize: 16,
+    color: colors.textDim,
+  },
+  secDot: {
+    color: colors.textMute,
+  },
+  editingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: colors.textDim,
+  },
+  saveBtn: {
+    flex: 1,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: '#000000',
   },
 });
-

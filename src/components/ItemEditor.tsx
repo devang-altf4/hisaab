@@ -1,7 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Plus, X } from 'lucide-react-native';
-import { colors, radii, spacing } from '../theme/tokens';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
 import type { Ingredient } from '../api/hisaabApi';
 
 /** One editable row. `ref` = index of the original item (absent for an added item). */
@@ -62,56 +63,63 @@ export const ItemEditor: React.FC<ItemEditorProps> = ({ rows, original, onChange
   const add = () => onChange([...rows, { key: newRowKey(), name: '', grams: '' }]);
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.header}>WHAT’S IN IT</Text>
+    <View style={styles.container}>
+      <Text style={styles.sectionTitle}>What’s in it</Text>
       <Text style={styles.help}>
-        Change the grams, remove what you didn’t eat, or add what’s missing. Totals are calculated from these items.
+        Change the grams, remove items, or add new ones. Totals are calculated from these items.
       </Text>
 
-      {rows.map((row) => {
-        const p = previewRow(row, original);
-        return (
-          <View key={row.key} style={styles.row}>
-            <TextInput
-              style={[styles.input, styles.nameInput]}
-              value={row.name}
-              onChangeText={(name) => update(row.key, { name })}
-              placeholder="Item, e.g. Raita"
-              placeholderTextColor={colors.textMute}
-              maxLength={60}
-              accessibilityLabel="Item name"
-            />
-            <View style={styles.gramsWrap}>
-              <TextInput
-                style={[styles.input, styles.gramsInput]}
-                value={row.grams}
-                onChangeText={(g) => update(row.key, { grams: g.replace(/[^0-9.]/g, '') })}
-                placeholder="—"
-                placeholderTextColor={colors.textMute}
-                keyboardType="numeric"
-                maxLength={5}
-                accessibilityLabel={`${row.name || 'Item'} weight in grams`}
-              />
-              <Text style={styles.unit}>g</Text>
+      <View style={styles.group}>
+        {rows.map((row, idx) => {
+          const p = previewRow(row, original);
+          return (
+            <View key={row.key} style={styles.rowWrapper}>
+              <View style={styles.row}>
+                <TextInput
+                  style={[styles.input, styles.nameInput]}
+                  value={row.name}
+                  onChangeText={(name) => update(row.key, { name })}
+                  placeholder="Item name"
+                  placeholderTextColor={colors.textMute}
+                  maxLength={60}
+                  accessibilityLabel="Item name"
+                  selectionColor="#FFFFFF"
+                />
+                <View style={styles.gramsWrap}>
+                  <TextInput
+                    style={[styles.input, styles.gramsInput]}
+                    value={row.grams}
+                    onChangeText={(g) => update(row.key, { grams: g.replace(/[^0-9.]/g, '') })}
+                    placeholder="—"
+                    placeholderTextColor={colors.textMute}
+                    keyboardType="numeric"
+                    maxLength={5}
+                    accessibilityLabel={`${row.name || 'Item'} weight in grams`}
+                    selectionColor="#FFFFFF"
+                  />
+                  <Text style={styles.unit}>g</Text>
+                </View>
+                <Text style={[styles.kcal, !p && styles.kcalPending]} numberOfLines={1}>
+                  {p ? `${p.calories} kcal` : 'AI on save'}
+                </Text>
+                <Pressable
+                  onPress={() => remove(row.key)}
+                  hitSlop={8}
+                  style={styles.remove}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${row.name || 'item'}`}
+                >
+                  <X size={18} color={colors.textDim} />
+                </Pressable>
+              </View>
+              {idx < rows.length - 1 && <View style={styles.separator} />}
             </View>
-            <Text style={[styles.kcal, !p && styles.kcalPending]} numberOfLines={2}>
-              {p ? `${p.calories} kcal` : 'AI on save'}
-            </Text>
-            <Pressable
-              onPress={() => remove(row.key)}
-              hitSlop={8}
-              style={styles.remove}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${row.name || 'item'}`}
-            >
-              <X size={16} color={colors.textDim} />
-            </Pressable>
-          </View>
-        );
-      })}
+          );
+        })}
+      </View>
 
       <Pressable onPress={add} style={styles.addBtn} accessibilityRole="button" disabled={rows.length >= 25}>
-        <Plus size={16} color={colors.accent} />
+        <Plus size={18} color={colors.text} />
         <Text style={styles.addText}>Add item</Text>
       </Pressable>
     </View>
@@ -119,34 +127,101 @@ export const ItemEditor: React.FC<ItemEditorProps> = ({ rows, original, onChange
 };
 
 const styles = StyleSheet.create({
-  card: {
+  container: {
+    marginTop: 20,
+    gap: 8,
+  },
+  sectionTitle: {
+    fontFamily: font.semibold,
+    fontSize: 20,
+    color: colors.text,
+    letterSpacing: -0.4,
+  },
+  help: {
+    fontFamily: font.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textDim,
+    marginBottom: 6,
+  },
+  group: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
+    overflow: 'hidden',
+  },
+  rowWrapper: {
+    position: 'relative',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: 10,
   },
-  header: { fontSize: 12, fontWeight: '800', color: colors.textMute, letterSpacing: 1 },
-  help: { fontSize: 13, lineHeight: 18, color: colors.textDim, marginBottom: 4 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   input: {
-    backgroundColor: colors.cardAlt,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    backgroundColor: colors.control,
+    borderRadius: radii.input,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: font.regular,
     fontSize: 15,
     color: colors.text,
   },
-  nameInput: { flex: 1, minWidth: 0 },
-  gramsWrap: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  gramsInput: { width: 62, textAlign: 'right', fontVariant: ['tabular-nums'] },
-  unit: { fontSize: 13, color: colors.textDim },
-  kcal: { width: 64, textAlign: 'right', fontSize: 13, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
-  kcalPending: { color: colors.accent, fontWeight: '600', fontSize: 12 },
-  remove: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.cardAlt },
-  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, alignSelf: 'flex-start' },
-  addText: { fontSize: 15, fontWeight: '700', color: colors.accent },
+  nameInput: { flex: 1 },
+  gramsWrap: { flexDirection: 'row', alignItems: 'center' },
+  gramsInput: {
+    width: 60,
+    textAlign: 'right',
+    paddingRight: 6,
+    fontVariant: ['tabular-nums'],
+  },
+  unit: {
+    position: 'absolute',
+    right: 8,
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.textMute,
+  },
+  kcal: {
+    width: 74,
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.text,
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
+  kcalPending: {
+    color: colors.accent,
+    fontFamily: font.medium,
+    fontSize: 12,
+  },
+  remove: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+  },
+  separator: {
+    position: 'absolute',
+    left: 16,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+  },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    alignSelf: 'flex-start',
+  },
+  addText: {
+    fontFamily: font.semibold,
+    fontSize: 15,
+    color: colors.text,
+    letterSpacing: -0.2,
+  },
 });

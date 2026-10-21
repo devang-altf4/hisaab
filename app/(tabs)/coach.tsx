@@ -11,11 +11,12 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, radii, spacing } from '../../src/theme/tokens';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors, radii } from '../../src/theme/tokens';
+import { font } from '../../src/theme/fonts';
 import { useChatHistory, useSendChatMessage, useClearChat, useSubscription } from '../../src/api/queries';
 import { router } from 'expo-router';
-import { Send, Trash2, Bot, Sparkles, MessageCircle } from 'lucide-react-native';
+import { ArrowUp, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { ChatMessage } from '../../src/api/hisaabApi';
 
@@ -27,10 +28,11 @@ const SUGGESTIONS = [
 ];
 
 export default function CoachScreen() {
+  const insets = useSafeAreaInsets();
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
 
-  const { data: historyData, isLoading, refetch } = useChatHistory();
+  const { data: historyData, isLoading } = useChatHistory();
   const { data: subData } = useSubscription();
   const sendMessageMutation = useSendChatMessage();
   const clearChatMutation = useClearChat();
@@ -65,7 +67,7 @@ export default function CoachScreen() {
   };
 
   const handleClearHistory = () => {
-    Alert.alert('Clear chat', 'Delete your whole chat history?', [
+    Alert.alert('Clear chat', 'Delete your entire chat history?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Clear',
@@ -87,31 +89,24 @@ export default function CoachScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.avatarRow}>
-          <View style={styles.avatarBox}>
-            <Bot size={22} color={colors.accent} />
-          </View>
-          <View>
-            <View style={styles.nameRow}>
-              <Text style={styles.coachTitle}>Coach</Text>
-              <View style={styles.aiBadge}>
-                <Sparkles size={10} color={colors.accent} />
-                <Text style={styles.aiBadgeText}>AI Coach</Text>
-              </View>
-            </View>
-            <Text style={styles.onlineStatus}>Knows your numbers for today</Text>
-          </View>
+        <View>
+          <Text style={styles.headerTitle}>Coach</Text>
+          <Text style={styles.headerSub}>Knows your numbers for today</Text>
         </View>
 
         <View style={styles.headerRight}>
           {showQuota && (
             <View style={styles.quotaPill}>
-              <Text style={styles.quotaText}>{chatsRemaining} free left</Text>
+              <Text style={styles.quotaText}>{chatsRemaining} free chats left</Text>
             </View>
           )}
           {messages.length > 0 && (
-            <TouchableOpacity style={styles.clearBtn} onPress={handleClearHistory}>
-              <Trash2 size={18} color={colors.textMute} />
+            <TouchableOpacity
+              style={styles.clearBtn}
+              onPress={handleClearHistory}
+              accessibilityLabel="Clear chat"
+            >
+              <Trash2 size={18} color={colors.textDim} />
             </TouchableOpacity>
           )}
         </View>
@@ -124,88 +119,80 @@ export default function CoachScreen() {
       >
         {isLoading && !historyData ? (
           <View style={styles.centerLoading}>
-            <ActivityIndicator color={colors.accent} size="large" />
+            <ActivityIndicator color={colors.textDim} size="large" />
           </View>
         ) : messages.length === 0 ? (
+          /* Empty State: title + 4 tappable suggestions */
           <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconCircle}>
-              <MessageCircle size={36} color={colors.accent} />
-            </View>
             <Text style={styles.emptyTitle}>Ask your coach anything</Text>
-            <Text style={styles.emptySub}>
-              Your calorie balance, meal ideas, or what a cheat meal will cost you.
-            </Text>
-
-            {/* Suggestions Chips */}
-            <View style={styles.suggestionsContainer}>
-              <Text style={styles.suggestionHeader}>TRY ASKING:</Text>
+            <View style={styles.suggestionsList}>
               {SUGGESTIONS.map((s, idx) => (
                 <TouchableOpacity
                   key={idx}
-                  style={styles.suggestionCard}
+                  style={styles.suggestionRow}
                   onPress={() => handleSend(s)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.suggestionText}>"{s}"</Text>
+                  <Text style={styles.suggestionText}>{s}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
         ) : (
+          /* Message List */
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.messagesList}
+            contentContainerStyle={styles.messagesContainer}
             renderItem={({ item }) => {
               const isUser = item.role === 'user';
-              return (
-                <View style={[styles.bubbleWrapper, isUser ? styles.bubbleUserWrapper : styles.bubbleBhaiWrapper]}>
-                  {!isUser && (
-                    <View style={styles.bubbleAvatar}>
-                      <Bot size={14} color={colors.accent} />
+              if (isUser) {
+                return (
+                  <View style={styles.userBubbleWrap}>
+                    <View style={styles.userBubble}>
+                      <Text style={styles.userText}>{item.text}</Text>
                     </View>
-                  )}
-                  <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleBhai]}>
-                    <Text style={[styles.bubbleText, isUser ? styles.bubbleTextUser : styles.bubbleTextBhai]}>
-                      {item.text}
-                    </Text>
                   </View>
+                );
+              }
+              // Coach messages: no bubble background, plain white text
+              return (
+                <View style={styles.coachWrap}>
+                  <Text style={styles.coachText}>{item.text}</Text>
                 </View>
               );
             }}
             ListFooterComponent={
               sendMessageMutation.isPending ? (
-                <View style={styles.typingContainer}>
-                  <View style={styles.bubbleAvatar}>
-                    <Bot size={14} color={colors.accent} />
-                  </View>
-                  <View style={styles.typingBubble}>
-                    <ActivityIndicator size="small" color={colors.accent} />
-                    <Text style={styles.typingText}>Coach is checking your numbers…</Text>
-                  </View>
+                <View style={styles.typingWrap}>
+                  <Text style={styles.typingText}>Coach is checking your numbers…</Text>
                 </View>
-              ) : undefined
+              ) : null
             }
           />
         )}
 
-        {/* Input Bar */}
-        <View style={styles.inputBar}>
+        {/* Input Bar pinned above the keyboard */}
+        <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TextInput
-            style={styles.textInput}
+            style={styles.inputField}
             placeholder="Ask your coach…"
             placeholderTextColor={colors.textMute}
             value={inputText}
             onChangeText={setInputText}
             multiline
+            maxLength={500}
+            selectionColor="#FFFFFF"
           />
           <TouchableOpacity
             style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
             disabled={!inputText.trim() || sendMessageMutation.isPending}
             onPress={() => handleSend()}
+            accessibilityRole="button"
+            accessibilityLabel="Send message"
           >
-            <Send size={18} color={inputText.trim() ? '#000' : colors.textMute} />
+            <ArrowUp size={20} color="#000000" strokeWidth={2.4} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -222,70 +209,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
-  avatarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  avatarBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  coachTitle: {
-    fontSize: 17,
-    fontWeight: '800',
+  headerTitle: {
+    fontFamily: font.bold,
+    fontSize: 28,
     color: colors.text,
+    letterSpacing: -0.6,
   },
-  aiBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radii.pill,
-    gap: 3,
-  },
-  aiBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: colors.accent,
-  },
-  onlineStatus: {
-    fontSize: 12,
+  headerSub: {
+    fontFamily: font.regular,
+    fontSize: 14,
     color: colors.textDim,
     marginTop: 2,
+    letterSpacing: -0.1,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   quotaPill: {
-    backgroundColor: colors.cardAlt,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    backgroundColor: colors.card,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: radii.pill,
   },
   quotaText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.accent,
+    fontFamily: font.medium,
+    fontSize: 12,
+    color: colors.textDim,
   },
   clearBtn: {
     padding: 6,
@@ -297,158 +254,107 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     flex: 1,
-    padding: spacing.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyIconCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    gap: 20,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '800',
+    fontFamily: font.semibold,
+    fontSize: 22,
     color: colors.text,
+    letterSpacing: -0.4,
   },
-  emptySub: {
-    fontSize: 14,
-    color: colors.textDim,
-    textAlign: 'center',
-    marginTop: 6,
-    lineHeight: 20,
-    marginBottom: spacing.xl,
-  },
-  suggestionsContainer: {
-    width: '100%',
-    gap: 8,
-  },
-  suggestionHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMute,
-    letterSpacing: 0.8,
-    marginBottom: 4,
-  },
-  suggestionCard: {
+  suggestionsList: {
     backgroundColor: colors.card,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
+    borderRadius: radii.card,
+    overflow: 'hidden',
+  },
+  suggestionRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   suggestionText: {
-    fontSize: 13,
+    fontFamily: font.regular,
+    fontSize: 15,
+    lineHeight: 21,
     color: colors.text,
-    fontStyle: 'italic',
+    letterSpacing: -0.2,
   },
-  messagesList: {
-    padding: spacing.xl,
-    paddingBottom: 20,
-    gap: 14,
+  messagesContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 24,
+    gap: 16,
   },
-  bubbleWrapper: {
-    flexDirection: 'row',
-    gap: 8,
+  userBubbleWrap: {
     alignItems: 'flex-end',
   },
-  bubbleUserWrapper: {
-    justifyContent: 'flex-end',
-  },
-  bubbleBhaiWrapper: {
-    justifyContent: 'flex-start',
-  },
-  bubbleAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  bubble: {
-    maxWidth: '82%',
+  userBubble: {
+    backgroundColor: colors.control,
+    borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 18,
+    maxWidth: '82%',
   },
-  bubbleUser: {
-    backgroundColor: colors.profit,
-    borderBottomRightRadius: 4,
-  },
-  bubbleBhai: {
-    backgroundColor: colors.cardAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderBottomLeftRadius: 4,
-  },
-  bubbleText: {
-    fontSize: 15,
+  userText: {
+    fontFamily: font.regular,
+    fontSize: 16,
     lineHeight: 22,
-  },
-  bubbleTextUser: {
-    color: '#000',
-    fontWeight: '500',
-  },
-  bubbleTextBhai: {
     color: colors.text,
+    letterSpacing: -0.2,
   },
-  typingContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-    marginTop: 4,
+  coachWrap: {
+    alignItems: 'flex-start',
+    maxWidth: '92%',
   },
-  typingBubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.cardAlt,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
+  coachText: {
+    fontFamily: font.regular,
+    fontSize: 16,
+    lineHeight: 23,
+    color: colors.text,
+    letterSpacing: -0.2,
+  },
+  typingWrap: {
+    paddingVertical: 8,
   },
   typingText: {
-    fontSize: 13,
-    color: colors.accent,
-    fontStyle: 'italic',
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.textDim,
   },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    backgroundColor: colors.bg,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
-    backgroundColor: colors.card,
     gap: 10,
   },
-  textInput: {
+  inputField: {
     flex: 1,
-    backgroundColor: colors.cardAlt,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.card,
+    borderRadius: 22,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
+    fontFamily: font.regular,
+    fontSize: 16,
     color: colors.text,
-    fontSize: 15,
     maxHeight: 100,
   },
   sendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.accent,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendBtnDisabled: {
-    backgroundColor: colors.cardAlt,
+    opacity: 0.3,
   },
 });

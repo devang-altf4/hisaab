@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,7 +15,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { X } from 'lucide-react-native';
-import { colors, radii, spacing } from '../theme/tokens';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
 import { useCorrectMeal } from '../api/queries';
 import type { Meal } from '../api/hisaabApi';
 
@@ -22,14 +24,10 @@ interface CorrectionSheetProps {
   visible: boolean;
   meal: Meal;
   onClose: () => void;
-  /** "Edit the numbers myself" → the screen's manual edit mode */
+  /** "Edit the items myself" → open edit mode */
   onEditNumbers: () => void;
 }
 
-/**
- * P1 "Wrong?" — the user says what it really is; the AI redoes the meal using the stored
- * photo plus these details as the source of truth (~2–4 s). On failure the meal is unchanged.
- */
 export const CorrectionSheet: React.FC<CorrectionSheetProps> = ({ visible, meal, onClose, onEditNumbers }) => {
   const insets = useSafeAreaInsets();
   const mutation = useCorrectMeal();
@@ -38,7 +36,6 @@ export const CorrectionSheet: React.FC<CorrectionSheetProps> = ({ visible, meal,
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // Fresh form every time the sheet opens.
   useEffect(() => {
     if (visible) {
       setName(meal.dishName);
@@ -74,8 +71,8 @@ export const CorrectionSheet: React.FC<CorrectionSheetProps> = ({ visible, meal,
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={mutation.isPending ? undefined : onClose} accessibilityLabel="Close" />
-      <KeyboardAvoidingView behavior="padding" style={styles.sheetWrap} pointerEvents="box-none">
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap} pointerEvents="box-none">
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
           <View style={styles.handle} />
           <View style={styles.headerRow}>
             <Text style={styles.title} accessibilityRole="header">
@@ -89,7 +86,7 @@ export const CorrectionSheet: React.FC<CorrectionSheetProps> = ({ visible, meal,
             Tell us what it really is. AI will recalculate using your photo and these details.
           </Text>
 
-          <ScrollView keyboardShouldPersistTaps="handled" style={styles.form} contentContainerStyle={{ gap: spacing.md }}>
+          <ScrollView keyboardShouldPersistTaps="handled" style={styles.form} contentContainerStyle={{ gap: 14 }}>
             <Field label="What is it?" value={name} onChangeText={setName} placeholder="e.g. Paneer tikka" />
             <Field
               label="How much?"
@@ -99,7 +96,7 @@ export const CorrectionSheet: React.FC<CorrectionSheetProps> = ({ visible, meal,
               autoFocus
             />
             <Field
-              label="Anything else? (optional)"
+              label="Anything else?"
               value={notes}
               onChangeText={setNotes}
               placeholder="e.g. cooked in butter, no oil, half portion"
@@ -121,7 +118,7 @@ export const CorrectionSheet: React.FC<CorrectionSheetProps> = ({ visible, meal,
           >
             {mutation.isPending ? (
               <View style={styles.row}>
-                <ActivityIndicator color="#000" size="small" />
+                <ActivityIndicator color="#000000" size="small" />
                 <Text style={styles.primaryText}>Recalculating…</Text>
               </View>
             ) : (
@@ -166,7 +163,7 @@ function Field(props: {
         autoFocus={props.autoFocus}
         maxLength={props.multiline ? 300 : 80}
         style={[styles.input, props.multiline && styles.inputMulti]}
-        selectionColor={colors.text}
+        selectionColor="#FFFFFF"
         accessibilityLabel={props.label}
       />
     </View>
@@ -174,45 +171,44 @@ function Field(props: {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.65)' },
   sheetWrap: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: spacing.xl,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 24,
     paddingTop: 10,
     maxHeight: '90%',
   },
-  handle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 12 },
+  handle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: 16 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontSize: 22, fontWeight: '800', color: colors.text },
-  subtitle: { fontSize: 14, lineHeight: 20, color: colors.textDim, marginTop: 4, marginBottom: spacing.lg },
+  title: { fontFamily: font.bold, fontSize: 24, letterSpacing: -0.5, color: colors.text },
+  subtitle: { fontFamily: font.regular, fontSize: 15, lineHeight: 21, color: colors.textDim, marginTop: 4, marginBottom: 16 },
   form: { flexGrow: 0 },
-  label: { fontSize: 13, fontWeight: '600', color: colors.textDim },
+  label: { fontFamily: font.medium, fontSize: 14, color: colors.textDim, letterSpacing: -0.1 },
   input: {
-    backgroundColor: colors.cardAlt,
+    backgroundColor: colors.control,
     borderRadius: radii.input,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontFamily: font.regular,
     fontSize: 16,
     color: colors.text,
   },
-  inputMulti: { minHeight: 76, textAlignVertical: 'top' },
-  error: { fontSize: 14, lineHeight: 20, color: colors.loss },
+  inputMulti: { minHeight: 80, textAlignVertical: 'top' },
+  error: { fontFamily: font.medium, fontSize: 14, lineHeight: 20, color: colors.loss },
   primary: {
-    marginTop: spacing.lg,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: colors.text,
+    marginTop: 20,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryDisabled: { opacity: 0.35 },
-  primaryText: { fontSize: 16, fontWeight: '700', color: '#000' },
+  primaryText: { fontFamily: font.semibold, fontSize: 17, color: '#000000' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  linkBtn: { alignItems: 'center', paddingVertical: 12 },
-  link: { fontSize: 15, fontWeight: '600', color: colors.textDim },
+  linkBtn: { alignItems: 'center', paddingVertical: 14 },
+  link: { fontFamily: font.medium, fontSize: 16, color: colors.textDim },
 });

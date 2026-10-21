@@ -10,13 +10,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
-import { colors, radii, spacing } from '../../src/theme/tokens';
+import { colors, radii } from '../../src/theme/tokens';
+import { font } from '../../src/theme/fonts';
 import { useTrainerClientDashboard } from '../../src/api/queries';
-import { daysAgoKey } from '../../src/lib/dates';
+import { localDateKey, daysAgoKey, formatHeaderDate } from '../../src/lib/dates';
 import { HisaabCard } from '../../src/components/HisaabCard';
 import { MacroRingsRow } from '../../src/components/MacroRing';
 import { MealCard } from '../../src/components/MealCard';
-import { ArrowLeft, ShieldCheck, Flame } from 'lucide-react-native';
+import { ChevronLeft } from 'lucide-react-native';
 
 export default function TrainerClientDashboardScreen() {
   const { clientId } = useLocalSearchParams<{ clientId: string }>();
@@ -35,33 +36,36 @@ export default function TrainerClientDashboardScreen() {
   const meals = dashboard?.meals || [];
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Top Bar */}
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <ArrowLeft size={20} color={colors.text} />
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Nav Bar */}
+      <View style={styles.navBar}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
+          <ChevronLeft size={28} color={colors.text} strokeWidth={2.4} />
         </TouchableOpacity>
-        <View style={styles.titleContainer}>
-          <Text style={styles.clientTitle}>{client?.name || 'Client'}'s Day</Text>
-          <View style={styles.readOnlyBadge}>
-            <ShieldCheck size={11} color={colors.accent} />
-            <Text style={styles.readOnlyText}>Read-Only Trainer View</Text>
-          </View>
+
+        <View style={styles.titleWrap}>
+          <Text style={styles.clientTitle}>{client?.name || 'Client'}’s day</Text>
+          <Text style={styles.viewOnlyLabel}>View only</Text>
         </View>
 
-        {/* Date toggle */}
-        <View style={styles.segmentedToggle}>
+        {/* Today / Yesterday Toggle */}
+        <View style={styles.segmented}>
           <TouchableOpacity
-            style={[styles.segmentBtn, !isYesterday && styles.segmentBtnActive]}
+            style={[styles.segmentBtn, !isYesterday && styles.segmentBtnOn]}
             onPress={() => setIsYesterday(false)}
           >
-            <Text style={[styles.segmentText, !isYesterday && styles.segmentTextActive]}>Today</Text>
+            <Text style={[styles.segmentText, !isYesterday && styles.segmentTextOn]}>Today</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.segmentBtn, isYesterday && styles.segmentBtnActive]}
+            style={[styles.segmentBtn, isYesterday && styles.segmentBtnOn]}
             onPress={() => setIsYesterday(true)}
           >
-            <Text style={[styles.segmentText, isYesterday && styles.segmentTextActive]}>Y'day</Text>
+            <Text style={[styles.segmentText, isYesterday && styles.segmentTextOn]}>Yesterday</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -70,28 +74,41 @@ export default function TrainerClientDashboardScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={() => { void refetch(); }} tintColor={colors.accent} />
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={() => { void refetch(); }}
+            tintColor={colors.accent}
+          />
         }
       >
         {isLoading && !data ? (
           <View style={styles.centerLoading}>
-            <ActivityIndicator color={colors.accent} size="large" />
+            <ActivityIndicator color={colors.textDim} size="large" />
           </View>
         ) : summary ? (
           <>
+            {/* Balance block */}
             <HisaabCard summary={summary} />
+
+            {/* Macro rings */}
             <MacroRingsRow macros={summary.macros} />
 
+            {/* Meal list */}
             <View style={styles.mealsSection}>
-              <Text style={styles.sectionTitle}>Client's Logged Meals ({meals.length})</Text>
+              <Text style={styles.sectionTitle}>Logged meals</Text>
               {meals.length === 0 ? (
-                <View style={styles.emptyCard}>
-                  <Text style={styles.emptyText}>No meals logged for this day.</Text>
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>Nothing logged yet today</Text>
                 </View>
               ) : (
-                meals.map((meal) => (
-                  <MealCard key={meal.id} meal={meal} readOnly />
-                ))
+                <View style={styles.mealsGroup}>
+                  {meals.map((meal, idx) => (
+                    <View key={meal.id} style={styles.mealRowWrap}>
+                      <MealCard meal={meal} readOnly />
+                      {idx < meals.length - 1 && <View style={styles.separator} />}
+                    </View>
+                  ))}
+                </View>
               )}
             </View>
           </>
@@ -106,98 +123,103 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
-  topBar: {
+  navBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
     gap: 12,
   },
   backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.card,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  titleContainer: {
+  titleWrap: {
     flex: 1,
   },
   clientTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontFamily: font.bold,
+    fontSize: 18,
     color: colors.text,
+    letterSpacing: -0.3,
   },
-  readOnlyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
+  viewOnlyLabel: {
+    fontFamily: font.regular,
+    fontSize: 12,
+    color: colors.textDim,
   },
-  readOnlyText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.accent,
-  },
-  segmentedToggle: {
+  segmented: {
     flexDirection: 'row',
     backgroundColor: colors.card,
     borderRadius: radii.pill,
     padding: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   segmentBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: radii.pill,
   },
-  segmentBtnActive: {
-    backgroundColor: colors.cardAlt,
+  segmentBtnOn: {
+    backgroundColor: colors.control,
   },
   segmentText: {
-    fontSize: 11,
-    color: colors.textMute,
-    fontWeight: '600',
+    fontFamily: font.medium,
+    fontSize: 12,
+    color: colors.textDim,
   },
-  segmentTextActive: {
+  segmentTextOn: {
     color: colors.text,
-    fontWeight: '700',
   },
   scrollContent: {
-    padding: spacing.xl,
-    paddingBottom: 100,
-    gap: spacing.lg,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 60,
+    gap: 20,
   },
   centerLoading: {
-    height: 300,
+    height: 320,
     alignItems: 'center',
     justifyContent: 'center',
   },
   mealsSection: {
-    marginTop: spacing.sm,
+    gap: 10,
+    marginTop: 4,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontFamily: font.semibold,
+    fontSize: 22,
     color: colors.text,
-    marginBottom: spacing.md,
+    letterSpacing: -0.4,
   },
-  emptyCard: {
+  mealsGroup: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    padding: spacing.xl,
+    overflow: 'hidden',
+  },
+  mealRowWrap: {
+    position: 'relative',
+  },
+  separator: {
+    position: 'absolute',
+    left: 84,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+  },
+  emptyContainer: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    padding: 32,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   emptyText: {
-    fontSize: 14,
+    fontFamily: font.regular,
+    fontSize: 15,
     color: colors.textDim,
   },
 });

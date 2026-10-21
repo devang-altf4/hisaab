@@ -7,15 +7,16 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Rect, Line, Text as SvgText } from 'react-native-svg';
-import { colors, radii, spacing, typography } from '../../src/theme/tokens';
+import { colors, radii } from '../../src/theme/tokens';
+import { font } from '../../src/theme/fonts';
 import { useLedger } from '../../src/api/queries';
-import { PnlBadge } from '../../src/components/PnlBadge';
 import { router } from 'expo-router';
-import { daysAgoKey } from '../../src/lib/dates';
-import { Calendar, ChevronRight, TrendingUp, TrendingDown, Award } from 'lucide-react-native';
+import { daysAgoKey, parseLocalDate, formatHeaderDate } from '../../src/lib/dates';
+import { ChevronRight } from 'lucide-react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -27,13 +28,13 @@ export default function HisaabScreen() {
     [rangeDays],
   );
 
-  const { data: ledgerData, isLoading, refetch } = useLedger(fromDate, toDate);
+  const { data: ledgerData, isLoading, isRefetching, refetch } = useLedger(fromDate, toDate);
 
   const totals = ledgerData?.totals;
   const days = ledgerData?.days || [];
 
-  // Bar chart calculations
-  const chartWidth = SCREEN_WIDTH - spacing.xl * 2 - spacing.lg * 2;
+  // Chart dimensions
+  const chartWidth = SCREEN_WIDTH - 48 - 32; // side margins 24*2 + card padding 16*2
   const chartHeight = 160;
   const zeroY = chartHeight / 2;
 
@@ -43,199 +44,220 @@ export default function HisaabScreen() {
     return max;
   }, [days]);
 
-  const barWidth = Math.max(4, Math.floor((chartWidth / (days.length || 7)) - 4));
+  const barWidth = Math.max(4, Math.floor(chartWidth / (days.length || 7) - (rangeDays === 7 ? 16 : 4)));
+  const stepX = chartWidth / (days.length || 7);
+
+  const isProfit = totals?.pnl.status === 'PROFIT';
+  const isLoss = totals?.pnl.status === 'LOSS';
+  const pnlSign = isProfit ? '+' : isLoss ? '−' : '';
+  const pnlColor = isProfit ? colors.profit : isLoss ? colors.loss : colors.accent;
+
+  const summaryLabel = rangeDays === 7 ? 'This week' : 'Last 30 days';
+  const pnlTitle = totals
+    ? `${pnlSign}${Math.abs(totals.pnl.amount).toLocaleString()} kcal ${isProfit ? 'in profit' : isLoss ? 'in loss' : 'break-even'}`
+    : '';
+
+  const fatKg = totals?.pnl.kgEquivalent ? Math.abs(totals.pnl.kgEquivalent).toFixed(2) : '0';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Ledger</Text>
-          <Text style={styles.headerSub}>Your profit and loss over time</Text>
-        </View>
+        <Text style={styles.largeTitle}>Ledger</Text>
 
-        {/* Range Chips */}
-        <View style={styles.rangeChips}>
+        {/* Segmented Control 7 days / 30 days */}
+        <View style={styles.segmented}>
           <TouchableOpacity
-            style={[styles.rangeChip, rangeDays === 7 && styles.rangeChipActive]}
+            style={[styles.segmentBtn, rangeDays === 7 && styles.segmentBtnOn]}
             onPress={() => setRangeDays(7)}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.rangeChipText, rangeDays === 7 && styles.rangeChipTextActive]}>
-              7 Days
-            </Text>
+            <Text style={[styles.segmentText, rangeDays === 7 && styles.segmentTextOn]}>7 days</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.rangeChip, rangeDays === 30 && styles.rangeChipActive]}
+            style={[styles.segmentBtn, rangeDays === 30 && styles.segmentBtnOn]}
             onPress={() => setRangeDays(30)}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.rangeChipText, rangeDays === 30 && styles.rangeChipTextActive]}>
-              30 Days
-            </Text>
+            <Text style={[styles.segmentText, rangeDays === 30 && styles.segmentTextOn]}>30 days</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={() => { void refetch(); }}
+            tintColor={colors.accent}
+          />
+        }
+      >
         {isLoading && !ledgerData ? (
           <View style={styles.centerLoading}>
-            <ActivityIndicator color={colors.accent} size="large" />
+            <ActivityIndicator color={colors.textDim} size="large" />
           </View>
         ) : totals ? (
           <>
-            {/* Top P&L Card */}
-            <View style={styles.summaryCard}>
-              <View style={styles.summaryHeader}>
-                <Text style={styles.summaryLabel}>
-                  {rangeDays === 7 ? 'THIS WEEK' : 'LAST 30 DAYS'}
-                </Text>
-                <PnlBadge pnl={totals.pnl} size="md" />
+            {/* Summary Group */}
+            <View style={styles.group}>
+              <View style={styles.summaryTop}>
+                <Text style={styles.summaryLabel}>{summaryLabel}</Text>
+                <Text style={[styles.summaryPnl, { color: pnlColor }]}>{pnlTitle}</Text>
+                <Text style={styles.summaryFat}>About {fatKg} kg of fat</Text>
               </View>
 
-              <Text style={styles.kgHighlight}>
-                {totals.pnl.status === 'PROFIT'
-                  ? `About ${Math.abs(totals.pnl.kgEquivalent)} kg of fat in profit`
-                  : totals.pnl.status === 'LOSS'
-                  ? `About ${Math.abs(totals.pnl.kgEquivalent)} kg of fat in loss`
-                  : 'Breaking even so far'}
-              </Text>
+              <View style={styles.separator} />
 
               <View style={styles.statsRow}>
                 <View style={styles.statBox}>
-                  <Text style={[styles.statVal, { color: colors.profit }]}>
-                    {totals.profitDays}
-                  </Text>
-                  <Text style={styles.statLabel}>Profit Days</Text>
+                  <Text style={styles.statNumber}>{totals.profitDays}</Text>
+                  <Text style={styles.statLabel}>Profit days</Text>
                 </View>
                 <View style={styles.statBox}>
-                  <Text style={[styles.statVal, { color: colors.loss }]}>
-                    {totals.lossDays}
-                  </Text>
-                  <Text style={styles.statLabel}>Loss Days</Text>
+                  <Text style={styles.statNumber}>{totals.lossDays}</Text>
+                  <Text style={styles.statLabel}>Loss days</Text>
                 </View>
                 <View style={styles.statBox}>
-                  <Text style={styles.statVal}>{totals.loggedDays}</Text>
+                  <Text style={styles.statNumber}>{totals.loggedDays}</Text>
                   <Text style={styles.statLabel}>Logged</Text>
                 </View>
               </View>
             </View>
 
-            {/* SVG Bar Chart */}
+            {/* Zero-line Bar Chart */}
             <View style={styles.chartCard}>
-              <View style={styles.chartHeader}>
-                <Text style={styles.chartTitle}>P&L Trajectory</Text>
-                <View style={styles.chartLegend}>
-                  <View style={[styles.legendDot, { backgroundColor: colors.profit }]} />
-                  <Text style={styles.legendText}>Profit</Text>
-                  <View style={[styles.legendDot, { backgroundColor: colors.loss, marginLeft: 8 }]} />
-                  <Text style={styles.legendText}>Loss</Text>
-                </View>
-              </View>
+              <Svg width={chartWidth} height={chartHeight + 20}>
+                {/* Zero line */}
+                <Line
+                  x1="0"
+                  y1={zeroY}
+                  x2={chartWidth}
+                  y2={zeroY}
+                  stroke={colors.border}
+                  strokeWidth="1"
+                  strokeDasharray="4,4"
+                />
 
-              <View style={styles.svgWrapper}>
-                <Svg width={chartWidth} height={chartHeight}>
-                  {/* Zero line */}
-                  <Line
-                    x1="0"
-                    y1={zeroY}
-                    x2={chartWidth}
-                    y2={zeroY}
-                    stroke={colors.border}
-                    strokeWidth="1.5"
-                    strokeDasharray="4 4"
-                  />
+                {/* Bars */}
+                {days.map((day, i) => {
+                  const x = i * stepX + (stepX - barWidth) / 2;
+                  const amt = day.pnl.amount;
+                  const dayObj = parseLocalDate(day.date);
+                  const initial = ['S', 'M', 'T', 'W', 'T', 'F', 'S'][dayObj.getDay()];
 
-                  {/* Bars */}
-                  {days.map((d, idx) => {
-                    const x = idx * (barWidth + 4);
-                    const isLogged = d.logged;
-                    const amount = d.pnl.amount;
-
-                    if (!isLogged) {
-                      // Grey stub for empty days
-                      return (
+                  if (!day.logged) {
+                    return (
+                      <React.Fragment key={day.date}>
                         <Rect
-                          key={d.date}
                           x={x}
                           y={zeroY - 2}
                           width={barWidth}
                           height={4}
-                          fill={colors.cardAlt}
+                          fill={colors.border}
                           rx={2}
                         />
-                      );
-                    }
-
-                    const barHeight = Math.max(
-                      4,
-                      Math.min(zeroY - 10, (Math.abs(amount) / maxAmount) * (zeroY - 10))
+                        {rangeDays === 7 && (
+                          <SvgText
+                            x={x + barWidth / 2}
+                            y={chartHeight + 14}
+                            fontSize="11"
+                            fill={colors.textMute}
+                            textAnchor="middle"
+                            fontFamily="Inter_400Regular"
+                          >
+                            {initial}
+                          </SvgText>
+                        )}
+                      </React.Fragment>
                     );
+                  }
 
-                    const isProfit = amount >= 0;
-                    const y = isProfit ? zeroY - barHeight : zeroY;
-                    const fillColor = isProfit ? colors.profit : colors.loss;
+                  const barHeight = Math.min((Math.abs(amt) / maxAmount) * (zeroY - 10), zeroY - 8);
+                  const isDayProfit = day.pnl.status === 'PROFIT';
+                  const y = isDayProfit ? zeroY - barHeight : zeroY;
 
-                    return (
+                  return (
+                    <React.Fragment key={day.date}>
                       <Rect
-                        key={d.date}
                         x={x}
                         y={y}
                         width={barWidth}
-                        height={barHeight}
-                        fill={fillColor}
-                        rx={2}
+                        height={Math.max(barHeight, 4)}
+                        fill={isDayProfit ? colors.profit : colors.loss}
+                        rx={3}
                       />
-                    );
-                  })}
-                </Svg>
-              </View>
+                      {rangeDays === 7 && (
+                        <SvgText
+                          x={x + barWidth / 2}
+                          y={chartHeight + 14}
+                          fontSize="11"
+                          fill={colors.textDim}
+                          textAnchor="middle"
+                          fontFamily="Inter_500Medium"
+                        >
+                          {initial}
+                        </SvgText>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </Svg>
             </View>
 
-            {/* Daily ledger list */}
-            <View style={styles.khataSection}>
-              <Text style={styles.khataSectionTitle}>Day by day</Text>
-              {days.slice().reverse().map((day) => {
-                const dateObj = new Date(day.date + 'T00:00:00');
-                const dateDisplay = dateObj.toLocaleDateString('en-IN', {
-                  weekday: 'short',
-                  day: 'numeric',
-                  month: 'short',
-                });
+            {/* Day by day grouped list */}
+            <View style={styles.daysSection}>
+              <Text style={styles.sectionTitle}>Day by day</Text>
+              <View style={styles.group}>
+                {days.slice().reverse().map((day, idx) => {
+                  const dayTitle = formatHeaderDate(day.date);
+                  const isDayProfit = day.pnl.status === 'PROFIT';
+                  const isDayLoss = day.pnl.status === 'LOSS';
+                  const tagSign = isDayProfit ? '+' : isDayLoss ? '−' : '';
+                  const tagText = day.logged
+                    ? `${tagSign}${Math.abs(day.pnl.amount)}`
+                    : 'Nothing logged';
+                  const tagColor = !day.logged
+                    ? colors.textMute
+                    : isDayProfit
+                    ? colors.profit
+                    : colors.loss;
+                  const tagBg = !day.logged
+                    ? 'transparent'
+                    : isDayProfit
+                    ? 'rgba(16, 185, 129, 0.14)'
+                    : 'rgba(255, 69, 58, 0.14)';
 
-                return (
-                  <TouchableOpacity
-                    key={day.date}
-                    style={styles.khataRow}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      // Navigate to dashboard
-                      router.replace('/(tabs)');
-                    }}
-                  >
-                    <View style={styles.khataLeft}>
-                      <Text style={styles.khataDate}>{dateDisplay}</Text>
-                      <View style={styles.khataDetails}>
-                        <Text style={styles.khataSub}>
-                          Eaten: <Text style={styles.khataHighlight}>{day.eaten}</Text> kcal
-                        </Text>
-                        {day.burned > 0 && (
-                          <Text style={[styles.khataSub, { color: colors.profit }]}>
-                            · Burned: +{day.burned}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
+                  return (
+                    <View key={day.date} style={styles.dayRowWrap}>
+                      <TouchableOpacity
+                        style={styles.dayRow}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          router.push({ pathname: '/(tabs)', params: { date: day.date, at: String(Date.now()) } } as any);
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.dayDate}>{dayTitle}</Text>
+                          {day.logged ? (
+                            <Text style={styles.dayDetail}>
+                              Eaten {day.eaten.toLocaleString()}, Burned {day.burned.toLocaleString()}
+                            </Text>
+                          ) : null}
+                        </View>
 
-                    <View style={styles.khataRight}>
-                      {day.logged ? (
-                        <PnlBadge pnl={day.pnl} size="sm" />
-                      ) : (
-                        <Text style={styles.khataSub}>Nothing logged</Text>
-                      )}
-                      <ChevronRight size={16} color={colors.textMute} />
+                        <View style={[styles.dayTag, { backgroundColor: tagBg }]}>
+                          <Text style={[styles.dayTagText, { color: tagColor }]}>{tagText}</Text>
+                        </View>
+                        <ChevronRight size={18} color={colors.border} />
+                      </TouchableOpacity>
+                      {idx < days.length - 1 && <View style={styles.separator} />}
                     </View>
-                  </TouchableOpacity>
-                );
-              })}
+                  );
+                })}
+              </View>
             </View>
           </>
         ) : null}
@@ -250,186 +272,153 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   header: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
+  largeTitle: {
+    fontFamily: font.bold,
+    fontSize: 34,
+    letterSpacing: -0.8,
     color: colors.text,
   },
-  headerSub: {
-    fontSize: 13,
-    color: colors.textDim,
-    marginTop: 2,
-  },
-  rangeChips: {
+  segmented: {
     flexDirection: 'row',
     backgroundColor: colors.card,
-    borderRadius: radii.pill,
+    borderRadius: 12,
     padding: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  rangeChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.pill,
+  segmentBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 9,
   },
-  rangeChipActive: {
-    backgroundColor: colors.cardAlt,
+  segmentBtnOn: {
+    backgroundColor: colors.control,
   },
-  rangeChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textMute,
+  segmentText: {
+    fontFamily: font.semibold,
+    fontSize: 14,
+    color: colors.textDim,
   },
-  rangeChipTextActive: {
+  segmentTextOn: {
     color: colors.text,
-    fontWeight: '700',
   },
   scrollContent: {
-    padding: spacing.xl,
+    paddingHorizontal: 24,
     paddingBottom: 100,
-    gap: spacing.lg,
+    gap: 20,
   },
   centerLoading: {
-    height: 300,
+    height: 320,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  summaryCard: {
+  group: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
+    overflow: 'hidden',
   },
-  summaryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
+  summaryTop: {
+    padding: 20,
+    gap: 4,
   },
   summaryLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.textMute,
-    letterSpacing: 1,
+    fontFamily: font.regular,
+    fontSize: 15,
+    color: colors.textDim,
+    letterSpacing: -0.2,
   },
-  kgHighlight: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-    lineHeight: 22,
-    marginBottom: spacing.lg,
+  summaryPnl: {
+    fontFamily: font.bold,
+    fontSize: 28,
+    letterSpacing: -0.6,
+    marginVertical: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  summaryFat: {
+    fontFamily: font.regular,
+    fontSize: 15,
+    color: colors.textDim,
+    letterSpacing: -0.2,
   },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    paddingVertical: 14,
   },
   statBox: {
+    flex: 1,
     alignItems: 'center',
+    gap: 2,
   },
-  statVal: {
-    fontSize: 20,
-    fontWeight: '800',
+  statNumber: {
+    fontFamily: font.bold,
+    fontSize: 18,
     color: colors.text,
     fontVariant: ['tabular-nums'],
   },
   statLabel: {
-    fontSize: 11,
-    color: colors.textMute,
-    marginTop: 2,
+    fontFamily: font.regular,
+    fontSize: 12,
+    color: colors.textDim,
   },
   chartCard: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-  },
-  chartHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    padding: 16,
     alignItems: 'center',
-    marginBottom: spacing.md,
   },
-  chartTitle: {
+  daysSection: {
+    gap: 10,
+  },
+  sectionTitle: {
+    fontFamily: font.semibold,
+    fontSize: 22,
+    color: colors.text,
+    letterSpacing: -0.4,
+  },
+  dayRowWrap: {
+    position: 'relative',
+  },
+  dayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  dayDate: {
+    fontFamily: font.semibold,
+    fontSize: 16,
+    color: colors.text,
+    letterSpacing: -0.2,
+  },
+  dayDetail: {
+    fontFamily: font.regular,
     fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  chartLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 4,
-  },
-  legendText: {
-    fontSize: 11,
-    color: colors.textMute,
-  },
-  svgWrapper: {
-    alignItems: 'center',
-  },
-  khataSection: {
-    marginTop: spacing.sm,
-  },
-  khataSectionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
-  khataRow: {
-    backgroundColor: colors.card,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  khataLeft: {
-    gap: 3,
-  },
-  khataDate: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  khataDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  khataSub: {
-    fontSize: 12,
     color: colors.textDim,
+    marginTop: 2,
+    letterSpacing: -0.1,
   },
-  khataHighlight: {
-    color: colors.text,
-    fontWeight: '600',
+  dayTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  dayTagText: {
+    fontFamily: font.semibold,
+    fontSize: 13,
     fontVariant: ['tabular-nums'],
   },
-  khataRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  separator: {
+    position: 'absolute',
+    left: 16,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
   },
 });
-

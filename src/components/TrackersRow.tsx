@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { colors, radii, spacing } from '../theme/tokens';
-import { Droplet, Flame, Plus, RotateCcw } from 'lucide-react-native';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
 import * as Haptics from 'expo-haptics';
 import { useLogWater, useDeleteLastWater } from '../api/queries';
 import type { DaySummary } from '../api/hisaabApi';
@@ -25,72 +25,51 @@ export const TrackersRow: React.FC<TrackersRowProps> = ({ summary, onOpenWorkout
     deleteWaterMutation.mutate(summary.date);
   };
 
-  const waterProgress = Math.min(Math.max(summary.water.progress, 0), 1);
-  const targetLiters = (summary.water.targetMl / 1000).toFixed(1);
-  const currentLiters = (summary.water.ml / 1000).toFixed(1);
+  const currentL = (summary.water.ml / 1000).toFixed(2);
+  const targetL = (summary.water.targetMl / 1000).toFixed(2);
+  const workoutCount = summary.counts?.workouts ?? 0;
 
   return (
     <View style={styles.container}>
-      {/* Water Card */}
-      <TouchableOpacity
-        style={styles.card}
-        activeOpacity={0.8}
-        onPress={handleWaterTap}
-        onLongPress={handleWaterLongPress}
-        delayLongPress={500}
-      >
-        <View style={styles.cardHeader}>
-          <View style={[styles.iconCircle, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
-            <Droplet size={18} color={colors.water} />
-          </View>
-          <View style={styles.badgeAction}>
-            <Plus size={12} color={colors.water} />
-            <Text style={styles.addText}>250ml</Text>
-          </View>
+      {/* Water Tile */}
+      <View style={styles.tile}>
+        <View style={styles.tileHeader}>
+          <Text style={styles.tileTitle}>Water</Text>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            activeOpacity={0.7}
+            onPress={handleWaterTap}
+            onLongPress={handleWaterLongPress}
+            delayLongPress={500}
+            accessibilityRole="button"
+            accessibilityLabel="Add 250 ml water, long press to undo"
+          >
+            <Text style={styles.actionBtnText}>+250 ml</Text>
+          </TouchableOpacity>
         </View>
+        <Text style={styles.tileValue}>
+          {currentL} of {targetL} L
+        </Text>
+      </View>
 
-        <View style={styles.content}>
-          <Text style={styles.valueText}>{summary.water.ml} ml</Text>
-          <Text style={styles.targetText}>of {summary.water.targetMl} ml target</Text>
+      {/* Exercise Tile */}
+      <View style={styles.tile}>
+        <View style={styles.tileHeader}>
+          <Text style={styles.tileTitle}>Exercise</Text>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            activeOpacity={0.7}
+            onPress={onOpenWorkout}
+            accessibilityRole="button"
+            accessibilityLabel="Log workout"
+          >
+            <Text style={styles.actionBtnText}>Log</Text>
+          </TouchableOpacity>
         </View>
-
-        {/* Progress bar */}
-        <View style={styles.progressBarTrack}>
-          <View style={[styles.progressBarFill, { width: `${waterProgress * 100}%`, backgroundColor: colors.water }]} />
-        </View>
-        <Text style={styles.hintText}>Tap +250ml · Hold to undo</Text>
-      </TouchableOpacity>
-
-      {/* Exercise Card */}
-      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={onOpenWorkout}>
-        <View style={styles.cardHeader}>
-          <View style={[styles.iconCircle, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-            <Flame size={18} color={colors.accent} />
-          </View>
-          <View style={[styles.badgeAction, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-            <Plus size={12} color={colors.accent} />
-            <Text style={[styles.addText, { color: colors.accent }]}>Log</Text>
-          </View>
-        </View>
-
-        <View style={styles.content}>
-          <Text style={styles.valueText}>+{summary.burned} kcal</Text>
-          <Text style={styles.targetText}>{summary.counts.workouts} workouts today</Text>
-        </View>
-
-        <View style={styles.progressBarTrack}>
-          <View
-            style={[
-              styles.progressBarFill,
-              {
-                width: `${Math.min((summary.burned / 500) * 100, 100)}%`,
-                backgroundColor: colors.accent,
-              },
-            ]}
-          />
-        </View>
-        <Text style={styles.hintText}>Bonus credit added</Text>
-      </TouchableOpacity>
+        <Text style={styles.tileValue}>
+          {summary.burned} kcal burned, {workoutCount} workout{workoutCount === 1 ? '' : 's'}
+        </Text>
+      </View>
     </View>
   );
 };
@@ -98,72 +77,45 @@ export const TrackersRow: React.FC<TrackersRowProps> = ({ summary, onOpenWorkout
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: 12,
   },
-  card: {
+  tile: {
     flex: 1,
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
+    padding: 16,
     justifyContent: 'space-between',
+    minHeight: 90,
   },
-  cardHeader: {
+  tileHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: 10,
   },
-  iconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+  tileTitle: {
+    fontFamily: font.medium,
+    fontSize: 15,
+    color: colors.textDim,
+    letterSpacing: -0.2,
   },
-  badgeAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
-    gap: 3,
+  actionBtn: {
+    backgroundColor: colors.control,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
-  addText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.water,
-  },
-  content: {
-    marginBottom: spacing.sm,
-  },
-  valueText: {
-    fontSize: 18,
-    fontWeight: '700',
+  actionBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 13,
     color: colors.text,
+    letterSpacing: -0.1,
+  },
+  tileValue: {
+    fontFamily: font.semibold,
+    fontSize: 15,
+    color: colors.text,
+    letterSpacing: -0.2,
     fontVariant: ['tabular-nums'],
   },
-  targetText: {
-    fontSize: 11,
-    color: colors.textMute,
-    marginTop: 2,
-  },
-  progressBarTrack: {
-    height: 4,
-    backgroundColor: colors.cardAlt,
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  hintText: {
-    fontSize: 10,
-    color: colors.textMute,
-  },
 });
-

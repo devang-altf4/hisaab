@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,70 +9,100 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, radii, spacing, typography } from '../../src/theme/tokens';
+import { useLocalSearchParams, router } from 'expo-router';
+import { colors, radii } from '../../src/theme/tokens';
+import { font } from '../../src/theme/fonts';
 import { HisaabCard } from '../../src/components/HisaabCard';
 import { MacroRingsRow } from '../../src/components/MacroRing';
 import { TrackersRow } from '../../src/components/TrackersRow';
 import { MealCard } from '../../src/components/MealCard';
 import { WorkoutModal } from '../../src/components/WorkoutModal';
 import { useDashboard, useServerHealth } from '../../src/api/queries';
-import { daysAgoKey } from '../../src/lib/dates';
-import { router } from 'expo-router';
-import { Flame, Camera, Plus, Sparkles } from 'lucide-react-native';
+import { localDateKey, addDays, isToday, formatHeaderDate } from '../../src/lib/dates';
+import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 
 export default function HomeScreen() {
-  // 'today' vs 'yesterday'
-  const [isYesterday, setIsYesterday] = useState(false);
+  // `at` changes on every Ledger tap, so tapping the same day again still jumps to it
+  const { date: paramDate, at: paramAt } = useLocalSearchParams<{ date?: string; at?: string }>();
+  const [selectedDate, setSelectedDate] = useState<string>(paramDate || localDateKey());
   const [workoutModalVisible, setWorkoutModalVisible] = useState(false);
 
-  const selectedDate = useMemo(() => {
-    if (!isYesterday) return undefined; // defaults to today on server
-    return daysAgoKey(1);
-  }, [isYesterday]);
+  useEffect(() => {
+    if (paramDate) {
+      setSelectedDate(paramDate);
+    }
+  }, [paramDate, paramAt]);
 
   const { data, isLoading, isRefetching, refetch } = useDashboard(selectedDate);
   const { data: health } = useServerHealth();
+
   const aiNotice =
     health?.aiStatus === 'error'
       ? 'AI isn’t working, so meal photos will fail. Check the AI key on the server.'
       : health?.aiMode === 'mock'
-        ? 'Demo mode: AI isn’t connected, so photo results are samples, not your food.'
-        : null;
+      ? 'Demo mode: AI isn’t connected, so photo results are samples.'
+      : null;
 
   const summary = data?.summary;
   const streak = data?.streak ?? 0;
   const meals = data?.meals ?? [];
 
+  const canStepForward = !isToday(selectedDate);
+  const stepBack = () => setSelectedDate((curr) => addDays(curr, -1));
+  const stepForward = () => {
+    if (canStepForward) {
+      setSelectedDate((curr) => addDays(curr, 1));
+    }
+  };
+
+  const dateLabel = formatHeaderDate(selectedDate);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
+      {/* Top Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.brandTitle}>Hisaab</Text>
+          <Text style={styles.wordmark}>Hisaab</Text>
           {streak > 0 && (
-            <View style={styles.streakBadge}>
-              <Flame size={14} color="#F59E0B" fill="#F59E0B" />
-              <Text style={styles.streakText}>{streak} day streak</Text>
-            </View>
+            <Text style={styles.streakText}>{streak}-day streak</Text>
           )}
         </View>
 
-        {/* Today | Yesterday Segmented Toggle */}
-        <View style={styles.segmentedToggle}>
+        {/* Date Stepper: ‹ Today › */}
+        <View style={styles.dateControl}>
           <TouchableOpacity
-            style={[styles.segmentBtn, !isYesterday && styles.segmentBtnActive]}
-            onPress={() => setIsYesterday(false)}
+            onPress={stepBack}
+            hitSlop={8}
+            style={styles.dateArrow}
+            accessibilityRole="button"
+            accessibilityLabel="Previous day"
           >
-            <Text style={[styles.segmentText, !isYesterday && styles.segmentTextActive]}>Today</Text>
+            <ChevronLeft size={20} color={colors.text} strokeWidth={2.4} />
           </TouchableOpacity>
+          <Text style={styles.dateLabel}>{dateLabel}</Text>
           <TouchableOpacity
-            style={[styles.segmentBtn, isYesterday && styles.segmentBtnActive]}
-            onPress={() => setIsYesterday(true)}
+            onPress={stepForward}
+            disabled={!canStepForward}
+            hitSlop={8}
+            style={[styles.dateArrow, !canStepForward && styles.dateArrowDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel="Next day"
           >
-            <Text style={[styles.segmentText, isYesterday && styles.segmentTextActive]}>Yesterday</Text>
+            <ChevronRight
+              size={20}
+              color={canStepForward ? colors.text : colors.textMute}
+              strokeWidth={2.4}
+            />
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Amber notice strip */}
+      {aiNotice && (
+        <View style={styles.noticeStrip} accessibilityRole="alert">
+          <Text style={styles.noticeText}>{aiNotice}</Text>
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -87,71 +117,56 @@ export default function HomeScreen() {
       >
         {isLoading && !data ? (
           <View style={styles.centerLoading}>
-            <ActivityIndicator color={colors.accent} size="large" />
+            <ActivityIndicator color={colors.textDim} size="large" />
           </View>
         ) : summary ? (
           <>
-            {/* Main Hisaab Card */}
-            {aiNotice ? (
-              <View style={styles.aiNotice} accessibilityRole="alert">
-                <Text style={styles.aiNoticeText}>{aiNotice}</Text>
-              </View>
-            ) : null}
+            {/* Balance block (no card border) */}
             <HisaabCard summary={summary} />
 
-            {/* Macro Breakdown Rings */}
+            {/* Three macro rings */}
             <MacroRingsRow macros={summary.macros} />
 
-            {/* Quick Trackers: Water & Exercise */}
+            {/* Two compact tiles: Water & Exercise */}
             <TrackersRow
               summary={summary}
               onOpenWorkout={() => setWorkoutModalVisible(true)}
             />
 
-            {/* Recently Uploaded Meals Section */}
+            {/* Today's meals grouped list */}
             <View style={styles.mealsSection}>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>Recently Uploaded</Text>
-                <TouchableOpacity
-                  style={styles.addMealShortcut}
-                  onPress={() => router.push('/capture' as any)}
-                >
-                  <Plus size={14} color={colors.accent} />
-                  <Text style={styles.addMealShortcutText}>Scan Meal</Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.sectionTitle}>Today’s meals</Text>
 
               {meals.length === 0 ? (
-                <TouchableOpacity
-                  style={styles.emptyStateCard}
-                  activeOpacity={0.8}
-                  onPress={() => router.push('/capture' as any)}
-                >
-                  <Text style={styles.emptyEmoji}>📸</Text>
+                <View style={styles.emptyContainer}>
                   <Text style={styles.emptyTitle}>Nothing logged yet today</Text>
-                  <Text style={styles.emptySub}>
-                    Snap a photo of your meal or describe it.
-                  </Text>
-                  <View style={styles.emptyCta}>
-                    <Camera size={16} color="#000" />
-                    <Text style={styles.emptyCtaText}>Log a Meal</Text>
-                  </View>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.emptyBtn}
+                    onPress={() => router.push('/capture' as any)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.emptyBtnText}>Log a Meal</Text>
+                  </TouchableOpacity>
+                </View>
               ) : (
-                meals.map((meal) => (
-                  <MealCard
-                    key={meal.id}
-                    meal={meal}
-                    onDescribeInstead={() => router.push('/capture' as any)}
-                  />
-                ))
+                <View style={styles.mealsGroup}>
+                  {meals.map((meal, idx) => (
+                    <View key={meal.id} style={styles.mealRowWrap}>
+                      <MealCard
+                        meal={meal}
+                        onDescribeInstead={() => router.push('/capture' as any)}
+                      />
+                      {idx < meals.length - 1 && <View style={styles.separator} />}
+                    </View>
+                  ))}
+                </View>
               )}
             </View>
           </>
         ) : null}
       </ScrollView>
 
-      {/* Workout Logger Sheet / Modal */}
+      {/* Workout Sheet Modal */}
       <WorkoutModal
         visible={workoutModalVisible}
         onClose={() => setWorkoutModalVisible(false)}
@@ -170,143 +185,127 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    gap: 2,
   },
-  brandTitle: {
-    fontSize: 26,
-    fontWeight: '900',
+  wordmark: {
+    fontFamily: font.bold,
+    fontSize: 32,
+    letterSpacing: -0.8,
     color: colors.text,
-    letterSpacing: -0.5,
-  },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: radii.pill,
-    gap: 4,
   },
   streakText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.accent,
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textDim,
+    letterSpacing: -0.1,
   },
-  segmentedToggle: {
+  dateControl: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.card,
     borderRadius: radii.pill,
-    padding: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 4,
   },
-  segmentBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: radii.pill,
+  dateArrow: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  segmentBtnActive: {
-    backgroundColor: colors.cardAlt,
+  dateArrowDisabled: {
+    opacity: 0.3,
   },
-  segmentText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textMute,
-  },
-  segmentTextActive: {
+  dateLabel: {
+    fontFamily: font.semibold,
+    fontSize: 14,
     color: colors.text,
-    fontWeight: '700',
+    letterSpacing: -0.2,
+    paddingHorizontal: 4,
+  },
+  noticeStrip: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  noticeText: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.accent,
   },
   scrollContent: {
-    padding: spacing.xl,
+    paddingHorizontal: 24,
+    paddingTop: 8,
     paddingBottom: 100,
-    gap: spacing.lg,
+    gap: 20,
   },
-  aiNotice: {
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    borderColor: 'rgba(245, 158, 11, 0.35)',
-    borderWidth: 1,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-  },
-  aiNoticeText: { color: colors.accent, fontSize: 13, lineHeight: 18, fontWeight: '600' },
   centerLoading: {
-    height: 300,
+    height: 320,
     alignItems: 'center',
     justifyContent: 'center',
   },
   mealsSection: {
-    marginTop: spacing.sm,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
+    gap: 10,
+    marginTop: 4,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontFamily: font.semibold,
+    fontSize: 22,
     color: colors.text,
+    letterSpacing: -0.4,
   },
-  addMealShortcut: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  addMealShortcutText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.accent,
-  },
-  emptyStateCard: {
+  mealsGroup: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderStyle: 'dashed',
-    padding: spacing.xxl,
+    overflow: 'hidden',
+  },
+  mealRowWrap: {
+    position: 'relative',
+  },
+  separator: {
+    position: 'absolute',
+    left: 84, // align with text past 56pt thumbnail + padding
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+  },
+  emptyContainer: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    paddingVertical: 40,
+    paddingHorizontal: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-  },
-  emptyEmoji: {
-    fontSize: 36,
+    gap: 16,
   },
   emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  emptySub: {
-    fontSize: 13,
+    fontFamily: font.medium,
+    fontSize: 17,
     color: colors.textDim,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
+    letterSpacing: -0.2,
   },
-  emptyCta: {
-    backgroundColor: colors.accent,
-    flexDirection: 'row',
+  emptyBtn: {
+    height: 48,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radii.button,
-    gap: 6,
+    justifyContent: 'center',
   },
-  emptyCtaText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#000',
+  emptyBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 16,
+    color: '#000000',
+    letterSpacing: -0.2,
   },
 });

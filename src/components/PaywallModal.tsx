@@ -7,9 +7,12 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
-import { colors, radii, spacing } from '../theme/tokens';
-import { X, Check, Sparkles, Crown } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
+import { X, Check } from 'lucide-react-native';
 import { useSubscription, useMockUpgrade } from '../api/queries';
 import { useAuth } from '../auth/AuthContext';
 
@@ -20,7 +23,8 @@ interface PaywallModalProps {
 }
 
 export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, onClose, reason }) => {
-  const [selectedPlanId, setSelectedPlanId] = useState<'pro_monthly' | 'pro_yearly'>('pro_yearly');
+  const insets = useSafeAreaInsets();
+  const [selectedPlanId, setSelectedPlanId] = useState<'pro_yearly' | 'pro_monthly'>('pro_yearly');
   const { data: subData, isLoading } = useSubscription();
   const mockUpgradeMutation = useMockUpgrade();
   const { refreshUser } = useAuth();
@@ -34,105 +38,100 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, onClose, re
     });
   };
 
-  const plans = subData?.plans || [
-    { id: 'pro_monthly' as const, name: 'Pro Monthly', priceInr: 149, period: 'month', days: 30, badge: null },
-    { id: 'pro_yearly' as const, name: 'Pro Yearly', priceInr: 999, period: 'year', days: 365, badge: 'Save 44%' },
-  ];
-
-  const features = subData?.features || [
-    '60 AI meal scans a day (free: 3)',
+  const checklist = [
+    '60 photo scans a day (free: 3)',
     '150 coach chats a day (free: 5)',
-    'Trainer sharing & weekly P&L reports',
+    'Share your log with a trainer',
     'Smart meal reminders',
   ];
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheetContainer}>
-          {/* Close button */}
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-            <X size={20} color={colors.textDim} />
-          </TouchableOpacity>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+      <View style={styles.sheetWrap} pointerEvents="box-none">
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
+          <View style={styles.handle} />
 
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Header / Crown */}
-            <View style={styles.header}>
-              <View style={styles.crownCircle}>
-                <Crown size={32} color={colors.accent} />
-              </View>
-              <Text style={styles.headline}>Upgrade to Pro</Text>
-              <Text style={styles.subheadline}>
-                {reason || 'More meal scans, more coach chats, and trainer sharing.'}
-              </Text>
+          <View style={styles.header}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Hisaab Pro</Text>
+              <Text style={styles.subtitle}>{reason || 'More scans, more coaching.'}</Text>
             </View>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} accessibilityLabel="Close">
+              <X size={22} color={colors.textDim} />
+            </TouchableOpacity>
+          </View>
 
-            {/* Benefits List */}
-            <View style={styles.benefitsContainer}>
-              {features.map((feat, idx) => (
-                <View key={idx} style={styles.benefitRow}>
-                  <View style={styles.checkCircle}>
-                    <Check size={14} color={colors.profit} />
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+            {/* Checklist */}
+            <View style={styles.checklist}>
+              {checklist.map((item, idx) => (
+                <View key={idx} style={styles.checkItem}>
+                  <View style={styles.checkIcon}>
+                    <Check size={16} color={colors.profit} strokeWidth={2.4} />
                   </View>
-                  <Text style={styles.benefitText}>{feat}</Text>
+                  <Text style={styles.checkText}>{item}</Text>
                 </View>
               ))}
             </View>
 
-            {/* Plans Selection */}
-            <Text style={styles.plansHeader}>CHOOSE YOUR PASS</Text>
-            {isLoading ? (
-              <ActivityIndicator color={colors.accent} style={{ marginVertical: 20 }} />
-            ) : (
-              <View style={styles.plansContainer}>
-                {plans.map((p) => {
-                  const isSelected = selectedPlanId === p.id;
-                  return (
-                    <TouchableOpacity
-                      key={p.id}
-                      style={[styles.planCard, isSelected && styles.planCardSelected]}
-                      onPress={() => setSelectedPlanId(p.id as any)}
-                      activeOpacity={0.8}
-                    >
-                      {p.badge && (
-                        <View style={styles.saveBadge}>
-                          <Text style={styles.saveBadgeText}>{p.badge}</Text>
-                        </View>
-                      )}
-                      <View style={styles.planInfo}>
-                        <Text style={styles.planName}>{p.name}</Text>
-                        <Text style={styles.planDays}>{p.days} days access</Text>
-                      </View>
-                      <View style={styles.priceContainer}>
-                        <Text style={styles.priceText}>₹{p.priceInr}</Text>
-                        <Text style={styles.periodText}>/{p.period}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
+            {/* Plan selection */}
+            <View style={styles.plansGroup}>
+              {/* Yearly plan */}
+              <TouchableOpacity
+                style={[styles.planRow, selectedPlanId === 'pro_yearly' && styles.planRowSelected]}
+                onPress={() => setSelectedPlanId('pro_yearly')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.planInfo}>
+                  <Text style={styles.planTitle}>Yearly</Text>
+                  <Text style={styles.planPrice}>₹999 / year</Text>
+                </View>
+                <View style={styles.planRight}>
+                  <View style={styles.saveTag}>
+                    <Text style={styles.saveTagText}>Save 44%</Text>
+                  </View>
+                  <View style={[styles.radioCircle, selectedPlanId === 'pro_yearly' && styles.radioCircleOn]}>
+                    {selectedPlanId === 'pro_yearly' && <View style={styles.radioDot} />}
+                  </View>
+                </View>
+              </TouchableOpacity>
 
-            {/* CTA Button */}
+              <View style={styles.separator} />
+
+              {/* Monthly plan */}
+              <TouchableOpacity
+                style={[styles.planRow, selectedPlanId === 'pro_monthly' && styles.planRowSelected]}
+                onPress={() => setSelectedPlanId('pro_monthly')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.planInfo}>
+                  <Text style={styles.planTitle}>Monthly</Text>
+                  <Text style={styles.planPrice}>₹149 / month</Text>
+                </View>
+                <View style={styles.planRight}>
+                  <View style={[styles.radioCircle, selectedPlanId === 'pro_monthly' && styles.radioCircleOn]}>
+                    {selectedPlanId === 'pro_monthly' && <View style={styles.radioDot} />}
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Start Pro button */}
             <TouchableOpacity
-              style={styles.ctaButton}
+              style={styles.ctaBtn}
               onPress={handleUpgrade}
               disabled={mockUpgradeMutation.isPending}
-              activeOpacity={0.8}
+              activeOpacity={0.85}
             >
               {mockUpgradeMutation.isPending ? (
-                <ActivityIndicator color="#000" size="small" />
+                <ActivityIndicator color="#000000" size="small" />
               ) : (
-                <>
-                  <Sparkles size={18} color="#000" />
-                  <Text style={styles.ctaButtonText}>Start Pro (test mode)</Text>
-                </>
+                <Text style={styles.ctaBtnText}>Start Pro</Text>
               )}
             </TouchableOpacity>
 
-            <Text style={styles.footerNotice}>
-              Test mode: Instant mock upgrade without real card billing.
-            </Text>
+            <Text style={styles.footerNote}>Test mode. No payment is taken.</Text>
           </ScrollView>
         </View>
       </View>
@@ -141,175 +140,151 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, onClose, re
 };
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'flex-end',
-  },
-  sheetContainer: {
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.65)' },
+  sheetWrap: { flex: 1, justifyContent: 'flex-end' },
+  sheet: {
     backgroundColor: colors.card,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: spacing.xl,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 24,
+    paddingTop: 10,
     maxHeight: '90%',
-    borderWidth: 1,
-    borderColor: colors.border,
-    position: 'relative',
+  },
+  handle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: 16 },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  title: {
+    fontFamily: font.bold,
+    fontSize: 26,
+    color: colors.text,
+    letterSpacing: -0.6,
+  },
+  subtitle: {
+    fontFamily: font.regular,
+    fontSize: 15,
+    color: colors.textDim,
+    marginTop: 4,
   },
   closeBtn: {
-    position: 'absolute',
-    top: spacing.lg,
-    right: spacing.lg,
-    zIndex: 10,
-    padding: 8,
-    borderRadius: radii.pill,
-    backgroundColor: colors.cardAlt,
-  },
-  header: {
-    alignItems: 'center',
-    marginVertical: spacing.lg,
-  },
-  crownCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.md,
   },
-  headline: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: colors.text,
-    textAlign: 'center',
+  scrollContent: {
+    gap: 20,
   },
-  subheadline: {
-    fontSize: 14,
-    color: colors.textDim,
-    textAlign: 'center',
-    marginTop: 6,
-    paddingHorizontal: spacing.md,
-    lineHeight: 20,
-  },
-  benefitsContainer: {
-    backgroundColor: colors.cardAlt,
-    borderRadius: radii.card,
-    padding: spacing.lg,
-    marginVertical: spacing.md,
+  checklist: {
     gap: 12,
   },
-  benefitRow: {
+  checkItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
-  checkCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  checkIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  benefitText: {
-    fontSize: 14,
+  checkText: {
+    fontFamily: font.regular,
+    fontSize: 16,
     color: colors.text,
-    fontWeight: '500',
-    flex: 1,
+    letterSpacing: -0.2,
   },
-  plansHeader: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textMute,
-    letterSpacing: 0.8,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  plansContainer: {
-    gap: 10,
-    marginBottom: spacing.lg,
-  },
-  planCard: {
-    backgroundColor: colors.cardAlt,
+  plansGroup: {
+    backgroundColor: colors.control,
     borderRadius: radii.card,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    position: 'relative',
     overflow: 'hidden',
   },
-  planCardSelected: {
-    borderColor: colors.accent,
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-  },
-  saveBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: colors.accent,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderBottomLeftRadius: 10,
-  },
-  saveBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#000',
-  },
-  planInfo: {},
-  planName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  planDays: {
-    fontSize: 12,
-    color: colors.textMute,
-    marginTop: 2,
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
-  priceText: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  periodText: {
-    fontSize: 13,
-    color: colors.textDim,
-  },
-  ctaButton: {
-    backgroundColor: colors.accent,
-    borderRadius: radii.button,
-    paddingVertical: 16,
+  planRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 4,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  ctaButtonText: {
+  planRowSelected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  planInfo: {
+    gap: 2,
+  },
+  planTitle: {
+    fontFamily: font.semibold,
     fontSize: 16,
-    fontWeight: '800',
-    color: '#000',
+    color: colors.text,
   },
-  footerNotice: {
-    fontSize: 11,
-    color: colors.textMute,
+  planPrice: {
+    fontFamily: font.regular,
+    fontSize: 14,
+    color: colors.textDim,
+  },
+  planRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  saveTag: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  saveTagText: {
+    fontFamily: font.semibold,
+    fontSize: 12,
+    color: colors.profit,
+  },
+  radioCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioCircleOn: {
+    borderColor: '#FFFFFF',
+  },
+  radioDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginLeft: 16,
+  },
+  ctaBtn: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: '#000000',
+  },
+  footerNote: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textDim,
     textAlign: 'center',
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
+    marginBottom: 8,
   },
 });
-

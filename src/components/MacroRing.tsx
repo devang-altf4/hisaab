@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
-import { colors, radii, spacing } from '../theme/tokens';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
 import type { MacroLine } from '../api/hisaabApi';
 
 interface SingleRingProps {
@@ -16,8 +17,8 @@ export const SingleMacroRing: React.FC<SingleRingProps> = ({
   label,
   macro,
   color,
-  size = 88,
-  strokeWidth = 7,
+  size = 82,
+  strokeWidth = 6.5,
 }) => {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -36,7 +37,7 @@ export const SingleMacroRing: React.FC<SingleRingProps> = ({
               cx={size / 2}
               cy={size / 2}
               r={radius}
-              stroke="#22222A"
+              stroke="#2C2C2E"
               strokeWidth={strokeWidth}
               fill="transparent"
             />
@@ -56,14 +57,14 @@ export const SingleMacroRing: React.FC<SingleRingProps> = ({
         </Svg>
         <View style={styles.centerTextContainer}>
           <Text style={styles.leftAmount}>
-            {macro.left < 0 ? `+${Math.abs(macro.left)}` : `${macro.left}`}g
+            {macro.left < 0 ? `+${Math.abs(macro.left)}` : `${macro.left}`}
           </Text>
-          <Text style={styles.leftSub}>{macro.left < 0 ? 'over' : 'left'}</Text>
+          <Text style={styles.leftUnit}>{macro.left < 0 ? 'over' : 'left'}</Text>
         </View>
       </View>
-      <Text style={[styles.ringLabel, { color }]}>{label}</Text>
+      <Text style={styles.ringLabel}>{label}</Text>
       <Text style={styles.targetSub}>
-        {macro.eaten}/{macro.target}g
+        {macro.eaten} of {macro.target} g
       </Text>
     </View>
   );
@@ -79,8 +80,7 @@ interface MacroRingsRowProps {
 
 export const MacroRingsRow: React.FC<MacroRingsRowProps> = ({ macros }) => {
   return (
-    <View style={styles.card}>
-      <Text style={styles.sectionHeader}>Macros Breakdown</Text>
+    <View style={styles.groupContainer}>
       <View style={styles.row}>
         <SingleMacroRing label="Protein" macro={macros.protein} color={colors.protein} />
         <SingleMacroRing label="Carbs" macro={macros.carbs} color={colors.carbs} />
@@ -91,20 +91,11 @@ export const MacroRingsRow: React.FC<MacroRingsRowProps> = ({ macros }) => {
 };
 
 const styles = StyleSheet.create({
-  card: {
+  groupContainer: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    borderColor: colors.border,
-    borderWidth: 1,
-    padding: spacing.lg,
-  },
-  sectionHeader: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textMute,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: spacing.md,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
   },
   row: {
     flexDirection: 'row',
@@ -113,6 +104,7 @@ const styles = StyleSheet.create({
   },
   ringWrapper: {
     alignItems: 'center',
+    flex: 1,
   },
   centerTextContainer: {
     position: 'absolute',
@@ -120,27 +112,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   leftAmount: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontFamily: font.bold,
+    fontSize: 16,
     color: colors.text,
     fontVariant: ['tabular-nums'],
+    letterSpacing: -0.3,
   },
-  leftSub: {
-    fontSize: 10,
-    fontWeight: '500',
+  leftUnit: {
+    fontFamily: font.regular,
+    fontSize: 11,
     color: colors.textDim,
+    marginTop: -2,
   },
   ringLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: spacing.sm,
+    fontFamily: font.semibold,
+    fontSize: 14,
+    color: colors.text,
+    marginTop: 8,
+    letterSpacing: -0.2,
   },
   targetSub: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: colors.textMute,
+    fontFamily: font.regular,
+    fontSize: 12,
+    color: colors.textDim,
     marginTop: 2,
     fontVariant: ['tabular-nums'],
   },
 });
-

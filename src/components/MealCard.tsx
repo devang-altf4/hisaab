@@ -1,9 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { colors, radii, spacing } from '../theme/tokens';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
 import { api } from '../api/client';
-import { PnlBadge } from './PnlBadge';
-import { Clock, RefreshCw, AlertCircle, Utensils } from 'lucide-react-native';
+import { AlertCircle, Utensils } from 'lucide-react-native';
 import { useRetryMeal } from '../api/queries';
 import type { Meal } from '../api/hisaabApi';
 import { router } from 'expo-router';
@@ -35,17 +35,16 @@ export const MealCard: React.FC<MealCardProps> = ({ meal, onPress, onDescribeIns
     }
   };
 
-  // 1. Analyzing state (skeleton card)
+  // 1. Analyzing state
   if (meal.status === 'analyzing') {
     return (
-      <View style={[styles.card, styles.analyzingCard]}>
-        <View style={styles.skeletonThumbnail}>
-          <ActivityIndicator color={colors.accent} size="small" />
+      <View style={styles.row}>
+        <View style={styles.thumbnailPlaceholder}>
+          <ActivityIndicator color={colors.textDim} size="small" />
         </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.analyzingTitle}>Analyzing your meal…</Text>
-          <Text style={styles.analyzingSub}>This takes a few seconds</Text>
-          <View style={styles.skeletonBar} />
+        <View style={styles.centerCol}>
+          <Text style={styles.analyzingText}>Analyzing your meal…</Text>
+          <Text style={styles.analyzingSub}>Checking ingredients and calories</Text>
         </View>
       </View>
     );
@@ -54,290 +53,217 @@ export const MealCard: React.FC<MealCardProps> = ({ meal, onPress, onDescribeIns
   // 2. Failed state
   if (meal.status === 'failed') {
     return (
-      <View style={[styles.card, styles.failedCard]}>
-        <View style={styles.failedIconContainer}>
-          <AlertCircle size={24} color={colors.loss} />
+      <View style={styles.row}>
+        <View style={[styles.thumbnailPlaceholder, { backgroundColor: 'rgba(255, 69, 58, 0.12)' }]}>
+          <AlertCircle size={22} color={colors.loss} />
         </View>
-        <View style={styles.cardContent}>
+        <View style={styles.centerCol}>
           <Text style={styles.failedTitle}>Couldn’t read this meal</Text>
-          <Text style={styles.failedSub}>{meal.error || 'Retry, or describe it instead.'}</Text>
-          {!readOnly && <View style={styles.failedActionRow}>
-            <TouchableOpacity style={styles.actionBtnSmall} onPress={handleRetry} disabled={retryMutation.isPending}>
-              <RefreshCw size={12} color={colors.text} />
-              <Text style={styles.actionBtnText}>Retry</Text>
-            </TouchableOpacity>
-            {onDescribeInstead && (
-              <TouchableOpacity style={[styles.actionBtnSmall, styles.actionBtnAlt]} onPress={onDescribeInstead}>
-                <Text style={styles.actionBtnText}>Describe instead</Text>
+          {!readOnly && (
+            <View style={styles.failedActionsRow}>
+              <TouchableOpacity
+                onPress={handleRetry}
+                disabled={retryMutation.isPending}
+                hitSlop={6}
+              >
+                <Text style={styles.failedActionText}>
+                  {retryMutation.isPending ? 'Retrying…' : 'Retry'}
+                </Text>
               </TouchableOpacity>
-            )}
-          </View>}
+              <Text style={styles.failedDot}>·</Text>
+              {onDescribeInstead && (
+                <TouchableOpacity onPress={onDescribeInstead} hitSlop={6}>
+                  <Text style={styles.failedActionText}>Describe instead</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
       </View>
     );
   }
 
-  // 3. Done state
+  // 3. Normal / Done state
   const imgUrl = api.resolveImageUrl(meal.imageUrl);
   const timeFormatted = meal.loggedAt
-    ? new Date(meal.loggedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    ? new Date(meal.loggedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     : '';
 
+  const mealTypeFormatted = meal.mealType
+    ? meal.mealType.charAt(0).toUpperCase() + meal.mealType.slice(1)
+    : '';
+
+  const subline = [mealTypeFormatted, timeFormatted].filter(Boolean).join(', ');
+
+  // Format P&L tag (+28 or -120)
+  let pnlTag: string | null = null;
+  let pnlIsProfit = true;
+  if (meal.hisaab) {
+    pnlIsProfit = meal.hisaab.status === 'PROFIT';
+    const sign = pnlIsProfit ? '+' : '−';
+    pnlTag = `${sign}${Math.abs(meal.hisaab.amount)}`;
+  }
+
   return (
-    <TouchableOpacity style={styles.card} activeOpacity={readOnly ? 1 : 0.7} onPress={handleCardPress} disabled={readOnly}>
-      {/* Thumbnail */}
-      <View style={styles.thumbnailContainer}>
-        {imgUrl ? (
-          <Image source={{ uri: imgUrl }} style={styles.thumbnail} resizeMode="cover" />
-        ) : (
-          <View style={styles.placeholderThumbnail}>
-            <Utensils size={20} color={colors.textMute} />
-          </View>
-        )}
-        {meal.healthScore ? (
-          <View style={styles.healthScoreBadge}>
-            <Text style={styles.healthScoreText}>{meal.healthScore}/10</Text>
-          </View>
-        ) : null}
+    <TouchableOpacity
+      style={styles.row}
+      activeOpacity={readOnly ? 1 : 0.7}
+      onPress={handleCardPress}
+      disabled={readOnly}
+    >
+      {/* 56 pt rounded photo thumbnail */}
+      {imgUrl ? (
+        <Image source={{ uri: imgUrl }} style={styles.thumbnail} resizeMode="cover" />
+      ) : (
+        <View style={styles.thumbnailPlaceholder}>
+          <Utensils size={20} color={colors.textMute} />
+        </View>
+      )}
+
+      {/* Center column: Name + Subline + Question chips */}
+      <View style={styles.centerCol}>
+        <Text style={styles.mealName} numberOfLines={1}>
+          {meal.dishName}
+        </Text>
+        <Text style={styles.mealSubline}>{subline}</Text>
+        {!readOnly && meal.clarify ? <ClarifyChips meal={meal} variant="compact" /> : null}
       </View>
 
-      {/* Details */}
-      <View style={styles.cardContent}>
-        <View style={styles.topRow}>
-          <Text style={styles.dishName} numberOfLines={1}>
-            {meal.dishName}
-          </Text>
-          <Text style={styles.caloriesText}>{meal.calories} kcal</Text>
-        </View>
-
-        <View style={styles.metaRow}>
-          <View style={styles.timeRow}>
-            <Clock size={11} color={colors.textMute} />
-            <Text style={styles.timeText}>{timeFormatted}</Text>
-          </View>
-          <Text style={styles.mealTypeTag}>{meal.mealType.toUpperCase()}</Text>
-          {meal.servings && meal.servings !== 1 ? (
-            <Text style={styles.servingsTag}>{meal.servings}x</Text>
+      {/* Right column: Calories + P&L tag, and macro line */}
+      <View style={styles.rightCol}>
+        <View style={styles.kcalRow}>
+          <Text style={styles.kcalText}>{meal.calories} kcal</Text>
+          {pnlTag ? (
+            <View
+              style={[
+                styles.pnlTagPill,
+                { backgroundColor: pnlIsProfit ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 69, 58, 0.15)' },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.pnlTagText,
+                  { color: pnlIsProfit ? colors.profit : colors.loss },
+                ]}
+              >
+                {pnlTag}
+              </Text>
+            </View>
           ) : null}
         </View>
-
-        {/* P1: "How many skewers?" — answer right here, no need to open the meal */}
-        {!readOnly && meal.clarify ? <ClarifyChips meal={meal} /> : null}
-
-        {/* Macro pills */}
-        <View style={styles.macroPillsRow}>
-          <View style={[styles.macroPill, { backgroundColor: 'rgba(248, 113, 113, 0.15)' }]}>
-            <Text style={[styles.macroPillText, { color: colors.protein }]}>P {meal.proteinG}g</Text>
-          </View>
-          <View style={[styles.macroPill, { backgroundColor: 'rgba(251, 191, 36, 0.15)' }]}>
-            <Text style={[styles.macroPillText, { color: colors.carbs }]}>C {meal.carbsG}g</Text>
-          </View>
-          <View style={[styles.macroPill, { backgroundColor: 'rgba(96, 165, 250, 0.15)' }]}>
-            <Text style={[styles.macroPillText, { color: colors.fat }]}>F {meal.fatG}g</Text>
-          </View>
-        </View>
-
-        {/* Per-meal PnL tag */}
-        {meal.hisaab && (
-          <View style={styles.pnlRow}>
-            <PnlBadge pnl={meal.hisaab} size="sm" />
-          </View>
-        )}
+        <Text style={styles.macroLine}>
+          P {meal.proteinG} · C {meal.carbsG} · F {meal.fatG}
+        </Text>
       </View>
     </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  thumbnailContainer: {
-    width: 76,
-    height: 76,
-    borderRadius: radii.md,
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: colors.cardAlt,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 76,
+    gap: 12,
   },
   thumbnail: {
-    width: '100%',
-    height: '100%',
+    width: 56,
+    height: 56,
+    borderRadius: 12,
   },
-  placeholderThumbnail: {
-    width: '100%',
-    height: '100%',
+  thumbnailPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: colors.control,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.cardAlt,
   },
-  healthScoreBadge: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  healthScoreText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  cardContent: {
+  centerCol: {
     flex: 1,
     justifyContent: 'center',
   },
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dishName: {
+  mealName: {
+    fontFamily: font.semibold,
     fontSize: 16,
-    fontWeight: '700',
+    lineHeight: 21,
     color: colors.text,
-    flex: 1,
+    letterSpacing: -0.3,
   },
-  caloriesText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
+  mealSubline: {
+    fontFamily: font.regular,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.textDim,
+    marginTop: 2,
+    letterSpacing: -0.1,
   },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 4,
-  },
-  timeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  rightCol: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
     gap: 4,
   },
-  timeText: {
-    fontSize: 11,
-    color: colors.textMute,
-  },
-  mealTypeTag: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.textDim,
-    backgroundColor: colors.cardAlt,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  servingsTag: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.accent,
-  },
-  macroPillsRow: {
+  kcalRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
-    marginTop: 8,
   },
-  macroPill: {
+  kcalText: {
+    fontFamily: font.semibold,
+    fontSize: 15,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.2,
+  },
+  pnlTagPill: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: 6,
   },
-  macroPillText: {
-    fontSize: 11,
-    fontWeight: '700',
+  pnlTagText: {
+    fontFamily: font.semibold,
+    fontSize: 12,
     fontVariant: ['tabular-nums'],
   },
-  pnlRow: {
-    marginTop: 8,
+  macroLine: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textMute,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.1,
   },
-  // Analyzing skeleton
-  analyzingCard: {
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-    backgroundColor: '#181612',
-  },
-  skeletonThumbnail: {
-    width: 76,
-    height: 76,
-    borderRadius: radii.md,
-    backgroundColor: colors.cardAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  analyzingTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.accent,
+  analyzingText: {
+    fontFamily: font.medium,
+    fontSize: 15,
+    color: colors.text,
+    letterSpacing: -0.2,
   },
   analyzingSub: {
-    fontSize: 12,
+    fontFamily: font.regular,
+    fontSize: 13,
     color: colors.textDim,
-    marginTop: 4,
-  },
-  skeletonBar: {
-    height: 4,
-    backgroundColor: 'rgba(245, 158, 11, 0.2)',
-    borderRadius: 2,
-    marginTop: 10,
-    width: '60%',
-  },
-  // Failed card
-  failedCard: {
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    backgroundColor: '#1A1212',
-  },
-  failedIconContainer: {
-    width: 76,
-    height: 76,
-    borderRadius: radii.md,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginTop: 2,
   },
   failedTitle: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontFamily: font.medium,
+    fontSize: 15,
     color: colors.loss,
+    letterSpacing: -0.2,
   },
-  failedSub: {
-    fontSize: 12,
-    color: colors.textDim,
-    marginTop: 4,
-  },
-  failedActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  actionBtnSmall: {
+  failedActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.cardAlt,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.button,
-    gap: 4,
+    marginTop: 4,
+    gap: 6,
   },
-  actionBtnAlt: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: colors.border,
+  failedActionText: {
+    fontFamily: font.semibold,
+    fontSize: 13,
+    color: colors.textDim,
   },
-  actionBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.text,
+  failedDot: {
+    color: colors.textMute,
   },
 });
-

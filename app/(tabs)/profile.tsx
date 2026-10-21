@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,35 +10,42 @@ import {
   ActivityIndicator,
   Share,
   Alert,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, radii, spacing, typography } from '../../src/theme/tokens';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors, radii } from '../../src/theme/tokens';
+import { font } from '../../src/theme/fonts';
 import { useAuth } from '../../src/auth/AuthContext';
-import { useSubscription, useTrainerInviteCode, useTrainerClients, useLinkTrainer, useRevokeTrainer, useSyncHealth } from '../../src/api/queries';
+import {
+  useSubscription,
+  useTrainerInviteCode,
+  useTrainerClients,
+  useLinkTrainer,
+  useRevokeTrainer,
+  useSyncHealth,
+} from '../../src/api/queries';
 import { api } from '../../src/api/client';
-import { PnlBadge } from '../../src/components/PnlBadge';
 import { PaywallModal } from '../../src/components/PaywallModal';
 import { triggerTestNotification, syncNotificationSchedule } from '../../src/notifications/notificationService';
 import { router } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import * as Clipboard from 'expo-clipboard';
 import {
-  User as UserIcon,
-  Crown,
-  Bell,
-  Heart,
-  Users,
   ChevronRight,
-  Sparkles,
   Share2,
   Copy,
-  RefreshCw,
   Plus,
   Minus,
+  X,
   Check,
 } from 'lucide-react-native';
+import { ChoiceList, Segmented, NumberRow, type Choice } from '../../src/onboarding/kit';
+import type { ActivityLevel, Goal, Sex } from '../../src/api/hisaabApi';
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { user, refreshUser, updateProfile, updateTargets } = useAuth();
   const { data: subData } = useSubscription();
   const { data: inviteData, refetch: refetchInvite } = useTrainerInviteCode();
@@ -50,23 +57,29 @@ export default function ProfileScreen() {
 
   // Modals & local controls
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [editProfileVisible, setEditProfileVisible] = useState(false);
+  const [editBudgetVisible, setEditBudgetVisible] = useState(false);
   const [trainerCodeInput, setTrainerCodeInput] = useState('');
   const [isLinkingTrainer, setIsLinkingTrainer] = useState(false);
   const [isTestingNotif, setIsTestingNotif] = useState(false);
-  const [healthSyncDemoMsg, setHealthSyncDemoMsg] = useState<string | null>(null);
+  const [savingNotif, setSavingNotif] = useState(false);
 
-  // Stepper for notifications count
+  // Reminders: 0 per day = off (saved on the server, schedule re-synced on the phone)
   const notifCount = user?.notificationsPerDay ?? 5;
+  const remindersOn = notifCount > 0;
 
   const handleNotifCountChange = async (newCount: number) => {
     const clamped = Math.max(0, Math.min(10, newCount));
-    if (clamped === notifCount) return;
+    if (clamped === notifCount || savingNotif) return;
+    setSavingNotif(true);
     try {
       await api.me.patch({ notificationsPerDay: clamped });
       await refreshUser();
       await syncNotificationSchedule(clamped);
     } catch (err: any) {
       Alert.alert('Update failed', err?.message || 'Try again');
+    } finally {
+      setSavingNotif(false);
     }
   };
 
@@ -74,7 +87,7 @@ export default function ProfileScreen() {
     setIsTestingNotif(true);
     try {
       const notif = await triggerTestNotification();
-      Alert.alert('Notification Sent! 🔔', `"${notif.title}"\n${notif.body}`);
+      Alert.alert('Notification sent', `"${notif.title}"\n${notif.body}`);
     } catch (err: any) {
       Alert.alert('Notification test failed', err?.message || 'Check permissions');
     } finally {
@@ -87,7 +100,7 @@ export default function ProfileScreen() {
     if (val) {
       Alert.alert(
         'Dev build required',
-        'Direct HealthKit / Health Connect sync requires a native dev build. You can use the "Sync demo workout" button below to test the bonus credit flow in Expo Go!'
+        'Direct HealthKit / Health Connect sync requires a native dev build. Use "Sync a demo workout" below to test the workout flow.'
       );
     }
   };
@@ -106,9 +119,8 @@ export default function ProfileScreen() {
         workouts: [fakeWorkout],
       },
       {
-        onSuccess: (data) => {
-          setHealthSyncDemoMsg(`Demo workout synced! (+320 kcal bonus credit added)`);
-          setTimeout(() => setHealthSyncDemoMsg(null), 4000);
+        onSuccess: () => {
+          Alert.alert('Workout synced', '+320 kcal bonus credit added to today’s ledger.');
         },
       }
     );
@@ -132,7 +144,7 @@ export default function ProfileScreen() {
   };
 
   const handleRevokeTrainers = () => {
-    Alert.alert('Remove trainer access?', 'Sab trainers ka access hat jayega aur naya code banega.', [
+    Alert.alert('Remove trainer access?', 'All trainer access will be removed and a new code will be generated.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -162,271 +174,577 @@ export default function ProfileScreen() {
     });
   };
 
-  const isPro = subData?.isPro || user?.isPro || false;
-  const scansUsed = subData?.usage?.scans?.used ?? 0;
-  const scansLimit = subData?.usage?.scans?.limit ?? 3;
-  const chatsUsed = subData?.usage?.chats?.used ?? 0;
-  const chatsLimit = subData?.usage?.chats?.limit ?? 5;
+  const usage = subData?.usage;
+  const scansUsed = usage?.scans?.used ?? 0;
+  const chatsUsed = usage?.chats?.used ?? 0;
+  const planLabel = subData?.isPro ? 'Hisaab Pro' : usage?.limitsEnabled ? 'Free plan' : 'Preview: no limits';
+  const usageLine =
+    usage?.limitsEnabled && !subData?.isPro
+      ? `Today: ${scansUsed} of ${usage.scans.limit} photo scans, ${chatsUsed} of ${usage.chats.limit} coach chats`
+      : `Today: ${scansUsed} photo scan${scansUsed === 1 ? '' : 's'}, ${chatsUsed} coach chat${chatsUsed === 1 ? '' : 's'}`;
+  const clients = clientsData?.clients || [];
+
+  const userName = user?.name || 'User';
+  const initial = userName.charAt(0).toUpperCase();
+  const goalLabel = user?.profile?.goal === 'gain' ? 'Gain muscle' : user?.profile?.goal === 'maintain' ? 'Maintain weight' : 'Lose weight';
+  const weightLabel = `${user?.profile?.weightKg || 72} kg`;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile & Settings</Text>
+        <Text style={styles.largeTitle}>Profile</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Profile Card */}
-        <View style={styles.card}>
-          <View style={styles.profileHeader}>
-            <View style={styles.avatarBox}>
-              <UserIcon size={28} color={colors.text} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.userName}>{user?.name || 'Hisaab User'}</Text>
-              <Text style={styles.userSub}>
-                Goal: {user?.profile?.goal ? user.profile.goal.toUpperCase() : 'LOSE'} ·{' '}
-                {user?.profile?.weightKg || 75} kg · {user?.profile?.heightCm || 175} cm
-              </Text>
-            </View>
+        {/* Header row: initial avatar, name, subtitle, chevron */}
+        <TouchableOpacity
+          style={styles.profileHeaderCard}
+          onPress={() => setEditProfileVisible(true)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarInitial}>{initial}</Text>
           </View>
-
-          <View style={styles.targetsRow}>
-            <View style={styles.targetItem}>
-              <Text style={styles.targetItemLabel}>Daily Capital</Text>
-              <Text style={styles.targetItemVal}>{user?.targets?.calories || 1850} kcal</Text>
-            </View>
-            <View style={styles.targetItem}>
-              <Text style={styles.targetItemLabel}>Protein</Text>
-              <Text style={[styles.targetItemVal, { color: colors.protein }]}>
-                {user?.targets?.proteinG || 140}g
-              </Text>
-            </View>
-            <View style={styles.targetItem}>
-              <Text style={styles.targetItemLabel}>Water Target</Text>
-              <Text style={[styles.targetItemVal, { color: colors.water }]}>
-                {user?.targets?.waterMl || 2500} ml
-              </Text>
-            </View>
+          <View style={styles.profileHeaderTextWrap}>
+            <Text style={styles.profileName}>{userName}</Text>
+            <Text style={styles.profileSub}>{goalLabel}, {weightLabel}</Text>
           </View>
-        </View>
+          <Text style={styles.editProfileLink}>Edit profile</Text>
+          <ChevronRight size={18} color={colors.textDim} />
+        </TouchableOpacity>
 
-        {/* Plan & Usage Card */}
-        <View style={[styles.card, isPro && styles.proCard]}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.rowAlign}>
-              <Crown size={20} color={isPro ? colors.accent : colors.textMute} />
-              <Text style={styles.cardSectionTitle}>{isPro ? 'Pro Member' : 'Free Plan'}</Text>
-            </View>
-            <View style={[styles.planBadge, isPro && styles.planBadgePro]}>
-              <Text style={[styles.planBadgeText, isPro && styles.planBadgeTextPro]}>
-                {isPro ? 'ACTIVE PRO' : 'FREE TIER'}
-              </Text>
-            </View>
-          </View>
-
-          <Text style={styles.usageText}>
-            {subData?.usage?.limitsEnabled === false
-              ? `Today: ${scansUsed} scans, ${chatsUsed} coach chats. No limits during the preview.`
-              : `Today's Usage: Scans ${scansUsed}/${isPro ? 'Unlimited' : scansLimit} · Chats ${chatsUsed}/${isPro ? 'Unlimited' : chatsLimit}`}
-          </Text>
-
-          {!isPro ? (
-            <TouchableOpacity
-              style={styles.upgradeBtn}
-              onPress={() => setPaywallVisible(true)}
-              activeOpacity={0.8}
-            >
-              <Sparkles size={16} color="#000" />
-              <Text style={styles.upgradeBtnText}>Upgrade to Pro</Text>
+        {/* Daily budget group */}
+        <View style={styles.sectionWrap}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Daily budget</Text>
+            <TouchableOpacity onPress={() => setEditBudgetVisible(true)} hitSlop={8}>
+              <Text style={styles.sectionActionText}>Edit</Text>
             </TouchableOpacity>
-          ) : (
-            <Text style={styles.proUntilText}>
-              Valid until: {user?.proUntil ? new Date(user.proUntil).toLocaleDateString() : 'Active'}
-            </Text>
-          )}
+          </View>
+          <View style={styles.group}>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Calories</Text>
+              <Text style={styles.rowValue}>{user?.targets?.calories?.toLocaleString() || 1860} kcal</Text>
+            </View>
+            <View style={styles.separator} />
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Protein</Text>
+              <Text style={styles.rowValue}>{user?.targets?.proteinG || 137} g</Text>
+            </View>
+            <View style={styles.separator} />
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Carbs</Text>
+              <Text style={styles.rowValue}>{user?.targets?.carbsG || 212} g</Text>
+            </View>
+            <View style={styles.separator} />
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Fat</Text>
+              <Text style={styles.rowValue}>{user?.targets?.fatG || 52} g</Text>
+            </View>
+            <View style={styles.separator} />
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Water</Text>
+              <Text style={styles.rowValue}>{((user?.targets?.waterMl || 2750) / 1000).toFixed(2)} L</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Zomato-style Notifications Section */}
-        <View style={styles.card}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.rowAlign}>
-              <Bell size={20} color={colors.accent} />
-              <Text style={styles.cardSectionTitle}>Zomato-Style Nudges</Text>
+        {/* Plan group */}
+        <View style={styles.sectionWrap}>
+          <Text style={styles.sectionTitle}>Plan</Text>
+          <View style={styles.group}>
+            <View style={styles.planUsageRow}>
+              <Text style={styles.rowLabel}>{planLabel}</Text>
+              <Text style={styles.rowDetailText}>{usageLine}</Text>
             </View>
+            <View style={styles.separator} />
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => setPaywallVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.rowLabel}>See Hisaab Pro</Text>
+              <ChevronRight size={18} color={colors.textDim} />
+            </TouchableOpacity>
           </View>
+        </View>
 
-          <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Notifications per day</Text>
-            <View style={styles.stepperContainer}>
-              <TouchableOpacity
-                style={styles.stepperBtn}
-                onPress={() => handleNotifCountChange(notifCount - 1)}
-              >
-                <Minus size={16} color={colors.text} />
-              </TouchableOpacity>
-              <Text style={styles.stepperVal}>{notifCount}</Text>
-              <TouchableOpacity
-                style={styles.stepperBtn}
-                onPress={() => handleNotifCountChange(notifCount + 1)}
-              >
-                <Plus size={16} color={colors.text} />
-              </TouchableOpacity>
+        {/* Reminders group */}
+        <View style={styles.sectionWrap}>
+          <Text style={styles.sectionTitle}>Reminders</Text>
+          <View style={styles.group}>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Meal reminders</Text>
+              <Switch
+                value={remindersOn}
+                onValueChange={(on) => handleNotifCountChange(on ? 5 : 0)}
+                disabled={savingNotif}
+                trackColor={{ false: colors.control, true: colors.profit }}
+                thumbColor="#FFFFFF"
+              />
             </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.testNotifBtn}
-            onPress={handleTestNotification}
-            disabled={isTestingNotif}
-          >
-            {isTestingNotif ? (
-              <ActivityIndicator color={colors.text} size="small" />
-            ) : (
-              <Text style={styles.testNotifBtnText}>Test Zomato-style notification 🔔</Text>
+            {remindersOn && (
+              <>
+                <View style={styles.separator} />
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>Reminders per day</Text>
+                  <View style={styles.stepperWrap}>
+                    <TouchableOpacity
+                      style={styles.stepperBtn}
+                      onPress={() => handleNotifCountChange(Math.max(1, notifCount - 1))}
+                      accessibilityLabel="Decrease reminders"
+                    >
+                      <Minus size={16} color={colors.text} strokeWidth={2.4} />
+                    </TouchableOpacity>
+                    <Text style={styles.stepperValue}>{notifCount}</Text>
+                    <TouchableOpacity
+                      style={styles.stepperBtn}
+                      onPress={() => handleNotifCountChange(notifCount + 1)}
+                      accessibilityLabel="Increase reminders"
+                    >
+                      <Plus size={16} color={colors.text} strokeWidth={2.4} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
             )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Health Sync Section */}
-        <View style={styles.card}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.rowAlign}>
-              <Heart size={20} color={colors.protein} />
-              <Text style={styles.cardSectionTitle}>Health Sync</Text>
-            </View>
-          </View>
-
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>Apple Health</Text>
-              <Text style={styles.settingSub}>Auto-import workouts for bonus credit</Text>
-            </View>
-            <Switch
-              value={user?.healthSync?.appleHealth ?? false}
-              onValueChange={(v) => handleHealthToggle('appleHealth', v)}
-              trackColor={{ false: colors.cardAlt, true: colors.profit }}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>Health Connect (Android)</Text>
-              <Text style={styles.settingSub}>Sync Google Fit / Health Connect</Text>
-            </View>
-            <Switch
-              value={user?.healthSync?.healthConnect ?? false}
-              onValueChange={(v) => handleHealthToggle('healthConnect', v)}
-              trackColor={{ false: colors.cardAlt, true: colors.profit }}
-            />
-          </View>
-
-          <TouchableOpacity
-            style={styles.demoSyncBtn}
-            onPress={handleSyncDemoWorkout}
-            disabled={syncHealthMutation.isPending}
-          >
-            {syncHealthMutation.isPending ? (
-              <ActivityIndicator color={colors.text} size="small" />
-            ) : (
-              <Text style={styles.demoSyncBtnText}>Sync demo workout (+320 kcal bonus) ⚡</Text>
-            )}
-          </TouchableOpacity>
-          {healthSyncDemoMsg && <Text style={styles.healthSuccessMsg}>{healthSyncDemoMsg}</Text>}
-        </View>
-
-        {/* Trainer Section */}
-        <View style={styles.card}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.rowAlign}>
-              <Users size={20} color={colors.fat} />
-              <Text style={styles.cardSectionTitle}>Trainer Connection</Text>
-            </View>
-          </View>
-
-          {/* Share code with trainer */}
-          <View style={styles.trainerBox}>
-            <Text style={styles.trainerBoxTitle}>SHARE WITH MY TRAINER</Text>
-            <Text style={styles.trainerBoxSub}>
-              Give this code to your trainer so they can see your daily log.
-            </Text>
-
-            <View style={styles.codeRow}>
-              <Text style={styles.inviteCodeText}>
-                {inviteData?.code || user?.trainerInviteCode || '----'}
+            <View style={styles.separator} />
+            <TouchableOpacity
+              style={styles.row}
+              onPress={handleTestNotification}
+              disabled={isTestingNotif}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.rowLabel}>
+                {isTestingNotif ? 'Sending reminder…' : 'Send a test reminder'}
               </Text>
-              <TouchableOpacity style={styles.codeBtn} onPress={handleShareInviteCode}>
-                <Share2 size={16} color={colors.text} />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.codeBtn} onPress={handleCopyCode}>
-                <Copy size={16} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-            {(inviteData?.trainerCount ?? 0) > 0 && (
-              <TouchableOpacity onPress={handleRevokeTrainers} disabled={revokeTrainerMutation.isPending}>
-                <Text style={[styles.trainerBoxSub, { color: colors.loss, marginTop: spacing.sm }]}>
-                  {inviteData!.trainerCount} trainer{inviteData!.trainerCount > 1 ? 's' : ''} linked · Remove access
-                </Text>
-              </TouchableOpacity>
-            )}
+              <ChevronRight size={18} color={colors.textDim} />
+            </TouchableOpacity>
           </View>
+        </View>
 
-          {/* I am a trainer section */}
-          <View style={[styles.trainerBox, { marginTop: spacing.md }]}>
-            <Text style={styles.trainerBoxTitle}>I'M A TRAINER (LINK CLIENT)</Text>
+        {/* Health group */}
+        <View style={styles.sectionWrap}>
+          <Text style={styles.sectionTitle}>Health sync</Text>
+          <View style={styles.group}>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Apple Health</Text>
+              <Switch
+                value={Boolean(user?.healthSync?.appleHealth)}
+                onValueChange={(val) => handleHealthToggle('appleHealth', val)}
+                trackColor={{ false: colors.control, true: colors.profit }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+            <View style={styles.separator} />
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Health Connect</Text>
+              <Switch
+                value={Boolean(user?.healthSync?.healthConnect)}
+                onValueChange={(val) => handleHealthToggle('healthConnect', val)}
+                trackColor={{ false: colors.control, true: colors.profit }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+            <View style={styles.separator} />
+            <TouchableOpacity
+              style={styles.row}
+              onPress={handleSyncDemoWorkout}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.rowLabel}>Sync a demo workout</Text>
+              <ChevronRight size={18} color={colors.textDim} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Trainer group */}
+        <View style={styles.sectionWrap}>
+          <Text style={styles.sectionTitle}>Trainer</Text>
+          <View style={styles.group}>
+            {/* Share invite code */}
+            <View style={styles.inviteRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabel}>Share with my trainer</Text>
+                <Text style={styles.codeText}>{inviteData?.code || 'Loading…'}</Text>
+              </View>
+              <View style={styles.iconActions}>
+                <TouchableOpacity style={styles.iconBtn} onPress={handleCopyCode} hitSlop={6}>
+                  <Copy size={18} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconBtn} onPress={handleShareInviteCode} hitSlop={6}>
+                  <Share2 size={18} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {inviteData && inviteData.trainerCount > 0 && (
+              <>
+                <View style={styles.separator} />
+                <TouchableOpacity style={styles.row} onPress={handleRevokeTrainers}>
+                  <Text style={[styles.rowLabel, { color: colors.loss }]}>Remove trainer access</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            <View style={styles.separator} />
+
+            {/* Link a client */}
             <View style={styles.linkRow}>
               <TextInput
-                style={styles.trainerInput}
-                placeholder="Enter client's invite code"
+                style={styles.linkInput}
+                placeholder="Enter a client’s code"
                 placeholderTextColor={colors.textMute}
                 value={trainerCodeInput}
                 onChangeText={setTrainerCodeInput}
                 autoCapitalize="characters"
+                selectionColor="#FFFFFF"
               />
               <TouchableOpacity
-                style={styles.linkBtn}
+                style={[styles.linkBtn, !trainerCodeInput.trim() && styles.linkBtnDisabled]}
                 onPress={handleLinkTrainer}
-                disabled={isLinkingTrainer || !trainerCodeInput.trim()}
+                disabled={!trainerCodeInput.trim() || isLinkingTrainer}
               >
                 {isLinkingTrainer ? (
-                  <ActivityIndicator color="#000" size="small" />
+                  <ActivityIndicator size="small" color="#000000" />
                 ) : (
                   <Text style={styles.linkBtnText}>Link</Text>
                 )}
               </TouchableOpacity>
             </View>
-          </View>
 
-          {/* Linked Clients List */}
-          {clientsData?.clients && clientsData.clients.length > 0 && (
-            <View style={{ marginTop: spacing.lg }}>
-              <Text style={styles.trainerBoxTitle}>MY LINKED CLIENTS</Text>
-              {clientsData.clients.map((client) => (
-                <TouchableOpacity
-                  key={client.id}
-                  style={styles.clientItem}
-                  activeOpacity={0.7}
-                  onPress={() => router.push(`/trainer/${client.id}` as any)}
-                >
-                  <View>
-                    <Text style={styles.clientName}>{client.name}</Text>
-                    <Text style={styles.clientSub}>
-                      {client.today.meals} meals today · {client.today.caloriesLeft} kcal balance
-                    </Text>
-                  </View>
-                  <View style={styles.rowAlign}>
-                    <PnlBadge pnl={client.today.pnl} size="sm" />
-                    <ChevronRight size={16} color={colors.textMute} />
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
+            {/* Linked Clients */}
+            {clients.map((c) => {
+              const isClientProfit = c.today?.pnl?.status === 'PROFIT';
+              const isClientLoss = c.today?.pnl?.status === 'LOSS';
+              const pnlTag = isClientProfit
+                ? `In profit, ${c.today.caloriesLeft.toLocaleString()} kcal`
+                : isClientLoss
+                ? `In loss, ${Math.abs(c.today.pnl.amount).toLocaleString()} kcal`
+                : `${c.today.caloriesLeft} kcal left`;
+
+              return (
+                <View key={c.id}>
+                  <View style={styles.separator} />
+                  <TouchableOpacity
+                    style={styles.row}
+                    onPress={() => router.push(`/trainer/${c.id}` as any)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowLabel}>{c.name}</Text>
+                      <Text
+                        style={[
+                          styles.rowDetailText,
+                          { color: isClientProfit ? colors.profit : isClientLoss ? colors.loss : colors.textDim },
+                        ]}
+                      >
+                        {pnlTag}
+                      </Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textDim} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
         </View>
       </ScrollView>
 
-      {/* Reusable Paywall Modal */}
-      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
+      {/* Edit Profile Modal */}
+      <EditProfileModal
+        visible={editProfileVisible}
+        onClose={() => setEditProfileVisible(false)}
+      />
+
+      {/* Edit Budget Modal */}
+      <EditBudgetModal
+        visible={editBudgetVisible}
+        onClose={() => setEditBudgetVisible(false)}
+      />
+
+      {/* Paywall Modal */}
+      <PaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+      />
     </SafeAreaView>
+  );
+}
+
+// ─── Edit Profile Modal ──────────────────────────────────────
+const GOALS: Choice<Goal>[] = [
+  { id: 'lose', title: 'Lose weight', detail: 'Target a calorie deficit to burn fat.' },
+  { id: 'maintain', title: 'Maintain weight', detail: 'Stay at your current weight with steady energy.' },
+  { id: 'gain', title: 'Gain muscle', detail: 'Eat a calorie surplus for strength and growth.' },
+];
+
+const ACTIVITIES: Choice<ActivityLevel>[] = [
+  { id: 'sedentary', title: 'Sedentary', detail: 'Desk job, little intentional exercise' },
+  { id: 'light', title: 'Lightly active', detail: '1–3 walks or light workouts a week' },
+  { id: 'moderate', title: 'Moderately active', detail: '3–5 workouts a week' },
+  { id: 'very_active', title: 'Very active', detail: 'Daily vigorous workouts or physical job' },
+];
+
+function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { user, refreshUser, updateProfile } = useAuth();
+  const [name, setName] = useState(user?.name || '');
+  const [goal, setGoal] = useState<Goal>(user?.profile?.goal || 'lose');
+  const [sex, setSex] = useState<Sex>(user?.profile?.sex || 'male');
+  const [age, setAge] = useState(String(user?.profile?.age || 28));
+  const [heightCm, setHeightCm] = useState(String(user?.profile?.heightCm || 175));
+  const [weightKg, setWeightKg] = useState(String(user?.profile?.weightKg || 72));
+  const [activity, setActivity] = useState<ActivityLevel>(user?.profile?.activityLevel || 'moderate');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible && user) {
+      setName(user.name || '');
+      setGoal(user.profile?.goal || 'lose');
+      setSex(user.profile?.sex || 'male');
+      setAge(String(user.profile?.age || 28));
+      setHeightCm(String(user.profile?.heightCm || 175));
+      setWeightKg(String(user.profile?.weightKg || 72));
+      setActivity(user.profile?.activityLevel || 'moderate');
+    }
+  }, [visible, user]);
+
+  const handleSave = async () => {
+    const a = parseInt(age, 10);
+    const h = parseFloat(heightCm);
+    const w = parseFloat(weightKg);
+    const problem = !name.trim()
+      ? 'Enter your name.'
+      : isNaN(a) || a < 13 || a > 100
+        ? 'Enter an age between 13 and 100.'
+        : isNaN(h) || h < 100 || h > 250
+          ? 'Enter a height between 100 and 250 cm.'
+          : isNaN(w) || w < 25 || w > 300
+            ? 'Enter a weight between 25 and 300 kg.'
+            : null;
+    if (problem) {
+      Alert.alert('Check your details', problem);
+      return;
+    }
+    try {
+      setSaving(true);
+      if (name.trim() !== user?.name) {
+        await api.me.patch({ name: name.trim() });
+      }
+      const updatedUser = await updateProfile({
+        goal,
+        sex,
+        age: a,
+        heightCm: Math.round(h),
+        weightKg: Math.round(w * 10) / 10,
+        activityLevel: activity,
+      });
+      await refreshUser();
+      setSaving(false);
+      onClose();
+      Alert.alert(
+        'Profile updated',
+        `New calculated daily budget: ${updatedUser.targets.calories.toLocaleString()} kcal`
+      );
+    } catch (err: any) {
+      setSaving(false);
+      Alert.alert('Update failed', err?.message || 'Try again');
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView style={modalStyles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={modalStyles.sheet}>
+          <View style={modalStyles.header}>
+            <Text style={modalStyles.title}>Edit Profile</Text>
+            <TouchableOpacity onPress={onClose} style={modalStyles.closeBtn}>
+              <X size={22} color={colors.textDim} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={[modalStyles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 80 }]}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Name */}
+            <Text style={modalStyles.sectionLabel}>Name</Text>
+            <TextInput
+              style={modalStyles.input}
+              value={name}
+              onChangeText={setName}
+              placeholder="Your name"
+              placeholderTextColor={colors.textMute}
+              selectionColor="#FFFFFF"
+            />
+
+            {/* Goal */}
+            <Text style={modalStyles.sectionLabel}>Goal</Text>
+            <ChoiceList options={GOALS} value={goal} onChange={setGoal} />
+
+            {/* Sex */}
+            <Text style={modalStyles.sectionLabel}>Sex</Text>
+            <Segmented
+              options={[
+                { id: 'male', label: 'Male' },
+                { id: 'female', label: 'Female' },
+              ]}
+              value={sex}
+              onChange={setSex}
+            />
+
+            {/* Numbers: Age, Height, Weight */}
+            <Text style={modalStyles.sectionLabel}>Measurements</Text>
+            <View style={modalStyles.group}>
+              <NumberRow label="Age" unit="yrs" value={age} onChange={setAge} min={13} max={100} />
+              <NumberRow label="Height" unit="cm" value={heightCm} onChange={setHeightCm} min={100} max={250} />
+              <NumberRow label="Weight" unit="kg" value={weightKg} onChange={setWeightKg} min={25} max={300} step={0.5} last />
+            </View>
+
+            {/* Activity Level */}
+            <Text style={modalStyles.sectionLabel}>Activity level</Text>
+            <ChoiceList options={ACTIVITIES} value={activity} onChange={setActivity} />
+          </ScrollView>
+
+          {/* Fixed Save Button */}
+          <View style={[modalStyles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <TouchableOpacity
+              style={modalStyles.saveBtn}
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              {saving ? (
+                <ActivityIndicator color="#000000" size="small" />
+              ) : (
+                <Text style={modalStyles.saveBtnText}>Save Changes</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// ─── Edit Budget Modal ───────────────────────────────────────
+function EditBudgetModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { user, refreshUser, updateTargets } = useAuth();
+  const [calories, setCalories] = useState(String(user?.targets?.calories || 1860));
+  const [protein, setProtein] = useState(String(user?.targets?.proteinG || 137));
+  const [carbs, setCarbs] = useState(String(user?.targets?.carbsG || 212));
+  const [fat, setFat] = useState(String(user?.targets?.fatG || 52));
+  const [water, setWater] = useState(String(user?.targets?.waterMl || 2750));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible && user?.targets) {
+      setCalories(String(user.targets.calories));
+      setProtein(String(user.targets.proteinG));
+      setCarbs(String(user.targets.carbsG));
+      setFat(String(user.targets.fatG));
+      setWater(String(user.targets.waterMl));
+    }
+  }, [visible, user]);
+
+  const handleSave = async () => {
+    const t = {
+      calories: parseInt(calories, 10),
+      proteinG: parseInt(protein, 10),
+      carbsG: parseInt(carbs, 10),
+      fatG: parseInt(fat, 10),
+      waterMl: parseInt(water, 10),
+    };
+    const out = (n: number, min: number, max: number) => isNaN(n) || n < min || n > max;
+    const problem = out(t.calories, 800, 6000)
+      ? 'Calories must be between 800 and 6,000 kcal.'
+      : out(t.proteinG, 0, 500)
+        ? 'Protein must be between 0 and 500 g.'
+        : out(t.carbsG, 0, 1000)
+          ? 'Carbs must be between 0 and 1,000 g.'
+          : out(t.fatG, 0, 400)
+            ? 'Fat must be between 0 and 400 g.'
+            : out(t.waterMl, 500, 8000)
+              ? 'Water must be between 500 and 8,000 ml.'
+              : null;
+    if (problem) {
+      Alert.alert('Check your budget', problem);
+      return;
+    }
+    try {
+      setSaving(true);
+      await updateTargets(t);
+      await refreshUser();
+      setSaving(false);
+      onClose();
+    } catch (err: any) {
+      setSaving(false);
+      Alert.alert('Update failed', err?.message || 'Try again');
+    }
+  };
+
+  const handleReset = async () => {
+    try {
+      setSaving(true);
+      await updateTargets({ reset: true });
+      await refreshUser();
+      setSaving(false);
+      onClose();
+      Alert.alert('Reset', 'Daily budget reset to recommended targets.');
+    } catch (err: any) {
+      setSaving(false);
+      Alert.alert('Reset failed', err?.message || 'Try again');
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView style={modalStyles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={modalStyles.sheet}>
+          <View style={modalStyles.header}>
+            <Text style={modalStyles.title}>Edit Daily Budget</Text>
+            <TouchableOpacity onPress={onClose} style={modalStyles.closeBtn}>
+              <X size={22} color={colors.textDim} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={[modalStyles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 120 }]}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={modalStyles.sectionLabel}>Targets</Text>
+            <View style={modalStyles.group}>
+              <NumberRow label="Calories" unit="kcal" value={calories} onChange={setCalories} min={800} max={6000} step={50} />
+              <NumberRow label="Protein" unit="g" value={protein} onChange={setProtein} min={0} max={500} step={5} />
+              <NumberRow label="Carbs" unit="g" value={carbs} onChange={setCarbs} min={0} max={1000} step={5} />
+              <NumberRow label="Fat" unit="g" value={fat} onChange={setFat} min={0} max={400} step={5} />
+              <NumberRow label="Water" unit="ml" value={water} onChange={setWater} min={500} max={8000} step={250} last />
+            </View>
+
+            <TouchableOpacity style={modalStyles.resetBtn} onPress={handleReset} disabled={saving}>
+              <Text style={modalStyles.resetBtnText}>Reset to recommended</Text>
+            </TouchableOpacity>
+          </ScrollView>
+
+          {/* Fixed Save Button */}
+          <View style={[modalStyles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <TouchableOpacity
+              style={modalStyles.saveBtn}
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              {saving ? (
+                <ActivityIndicator color="#000000" size="small" />
+              ) : (
+                <Text style={modalStyles.saveBtnText}>Save Budget</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -436,292 +754,296 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   header: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
+  largeTitle: {
+    fontFamily: font.bold,
+    fontSize: 34,
+    letterSpacing: -0.8,
     color: colors.text,
   },
   scrollContent: {
-    padding: spacing.xl,
+    paddingHorizontal: 24,
     paddingBottom: 100,
-    gap: spacing.lg,
+    gap: 24,
   },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-  },
-  proCard: {
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-    backgroundColor: 'rgba(245, 158, 11, 0.05)',
-  },
-  profileHeader: {
+  profileHeaderCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    padding: 16,
     gap: 14,
   },
-  avatarBox: {
+  avatarCircle: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: colors.cardAlt,
+    backgroundColor: colors.control,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  userName: {
+  avatarInitial: {
+    fontFamily: font.bold,
+    fontSize: 22,
+    color: colors.text,
+  },
+  profileHeaderTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  profileName: {
+    fontFamily: font.bold,
     fontSize: 18,
-    fontWeight: '700',
     color: colors.text,
+    letterSpacing: -0.3,
   },
-  userSub: {
-    fontSize: 12,
+  profileSub: {
+    fontFamily: font.regular,
+    fontSize: 14,
     color: colors.textDim,
-    marginTop: 2,
   },
-  targetsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: spacing.md,
-    marginTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+  editProfileLink: {
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.textDim,
   },
-  targetItem: {
-    alignItems: 'center',
-  },
-  targetItemLabel: {
-    fontSize: 11,
-    color: colors.textMute,
-  },
-  targetItemVal: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
-    marginTop: 2,
-    fontVariant: ['tabular-nums'],
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  rowAlign: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  sectionWrap: {
     gap: 8,
   },
-  cardSectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  planBadge: {
-    backgroundColor: colors.cardAlt,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
-  },
-  planBadgePro: {
-    backgroundColor: 'rgba(245, 158, 11, 0.2)',
-  },
-  planBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.textDim,
-  },
-  planBadgeTextPro: {
-    color: colors.accent,
-  },
-  usageText: {
-    fontSize: 13,
-    color: colors.textDim,
-    marginBottom: spacing.md,
-  },
-  upgradeBtn: {
-    backgroundColor: colors.accent,
-    paddingVertical: 12,
-    borderRadius: radii.button,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  upgradeBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#000',
-  },
-  proUntilText: {
-    fontSize: 12,
-    color: colors.profit,
-    fontWeight: '600',
-  },
-  settingRow: {
+  sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingHorizontal: 4,
   },
-  settingLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+  sectionTitle: {
+    fontFamily: font.semibold,
+    fontSize: 17,
     color: colors.text,
+    letterSpacing: -0.3,
   },
-  settingSub: {
-    fontSize: 11,
-    color: colors.textMute,
-    marginTop: 2,
+  sectionActionText: {
+    fontFamily: font.medium,
+    fontSize: 15,
+    color: colors.textDim,
   },
-  stepperContainer: {
+  group: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 50,
+  },
+  rowLabel: {
+    fontFamily: font.medium,
+    fontSize: 16,
+    color: colors.text,
+    letterSpacing: -0.2,
+  },
+  rowValue: {
+    fontFamily: font.semibold,
+    fontSize: 16,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  planUsageRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 4,
+  },
+  rowDetailText: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textDim,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginLeft: 16,
+  },
+  stepperWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   stepperBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: colors.cardAlt,
+    backgroundColor: colors.control,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  stepperVal: {
-    fontSize: 15,
-    fontWeight: '700',
+  stepperValue: {
+    fontFamily: font.semibold,
+    fontSize: 16,
     color: colors.text,
-  },
-  testNotifBtn: {
-    marginTop: spacing.md,
-    backgroundColor: colors.cardAlt,
-    paddingVertical: 12,
-    borderRadius: radii.button,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  testNotifBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  demoSyncBtn: {
-    marginTop: spacing.md,
-    backgroundColor: colors.cardAlt,
-    paddingVertical: 12,
-    borderRadius: radii.button,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  demoSyncBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.accent,
-  },
-  healthSuccessMsg: {
-    fontSize: 12,
-    color: colors.profit,
+    fontVariant: ['tabular-nums'],
+    minWidth: 20,
     textAlign: 'center',
-    marginTop: 8,
-    fontWeight: '600',
   },
-  trainerBox: {
-    backgroundColor: colors.cardAlt,
-    borderRadius: radii.md,
-    padding: spacing.md,
-  },
-  trainerBoxTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.textMute,
-    letterSpacing: 0.8,
-    marginBottom: 4,
-  },
-  trainerBoxSub: {
-    fontSize: 12,
-    color: colors.textDim,
-    marginBottom: spacing.md,
-    lineHeight: 16,
-  },
-  codeRow: {
+  inviteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  inviteCodeText: {
-    flex: 1,
+  codeText: {
+    fontFamily: font.bold,
     fontSize: 20,
-    fontWeight: '800',
-    color: colors.accent,
-    letterSpacing: 2,
+    color: colors.profit,
+    letterSpacing: 1.5,
+    marginTop: 4,
   },
-  codeBtn: {
+  iconActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  iconBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: colors.card,
+    backgroundColor: colors.control,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   linkRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 6,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
   },
-  trainerInput: {
+  linkInput: {
     flex: 1,
-    backgroundColor: colors.card,
-    borderRadius: radii.input,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.control,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    fontFamily: font.medium,
+    fontSize: 15,
     color: colors.text,
-    fontSize: 14,
   },
   linkBtn: {
-    backgroundColor: colors.profit,
-    paddingHorizontal: 18,
-    borderRadius: radii.button,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  linkBtnText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#000',
+  linkBtnDisabled: {
+    opacity: 0.35,
   },
-  clientItem: {
+  linkBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 14,
+    color: '#000000',
+  },
+});
+
+const modalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '92%',
+    paddingTop: 16,
+  },
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
-  clientName: {
-    fontSize: 15,
-    fontWeight: '700',
+  title: {
+    fontFamily: font.bold,
+    fontSize: 22,
+    color: colors.text,
+    letterSpacing: -0.4,
+  },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    gap: 12,
+  },
+  sectionLabel: {
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.textDim,
+    marginTop: 8,
+    marginLeft: 4,
+  },
+  input: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontFamily: font.medium,
+    fontSize: 16,
     color: colors.text,
   },
-  clientSub: {
-    fontSize: 12,
-    color: colors.textMute,
-    marginTop: 2,
+  group: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    overflow: 'hidden',
+  },
+  resetBtn: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    marginTop: 8,
+  },
+  resetBtnText: {
+    fontFamily: font.medium,
+    fontSize: 15,
+    color: colors.textDim,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.bg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+  },
+  saveBtn: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveBtnText: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: '#000000',
   },
 });

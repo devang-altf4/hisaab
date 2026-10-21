@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { colors, radii, spacing } from '../theme/tokens';
+import { colors, radii } from '../theme/tokens';
+import { font } from '../theme/fonts';
 import { useClarifyMeal } from '../api/queries';
 import type { Meal } from '../api/hisaabApi';
 
@@ -61,7 +62,7 @@ export const ClarifyChips: React.FC<ClarifyChipsProps> = ({ meal, variant = 'com
               ]}
             >
               {saving ? (
-                <ActivityIndicator size="small" color="#000" />
+                <ActivityIndicator size="small" color="#000000" />
               ) : (
                 <Text style={[styles.chipText, isCard && styles.chipTextLarge, on && styles.chipTextOn]}>{n}</Text>
               )}
@@ -79,34 +80,67 @@ export const ClarifyChips: React.FC<ClarifyChipsProps> = ({ meal, variant = 'com
 };
 
 const styles = StyleSheet.create({
-  compact: { marginTop: 8, gap: 6 },
+  compact: { marginTop: 6, gap: 6 },
   card: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.35)',
-    padding: spacing.lg,
+    padding: 16,
     gap: 10,
+    marginTop: 12,
   },
-  questionCompact: { fontSize: 13, fontWeight: '600', color: colors.accent },
-  questionCard: { fontSize: 17, fontWeight: '700', color: colors.text },
-  chipsRow: { flexDirection: 'row', gap: 8 },
+  questionCompact: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.accent,
+    letterSpacing: -0.1,
+  },
+  questionCard: {
+    fontFamily: font.semibold,
+    fontSize: 17,
+    color: colors.text,
+    letterSpacing: -0.3,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   chip: {
-    minWidth: 36,
+    minWidth: 34,
     height: 30,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     borderRadius: radii.pill,
-    backgroundColor: colors.cardAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chipLarge: { minWidth: 48, height: 40 },
-  chipOn: { backgroundColor: colors.text, borderColor: colors.text },
-  chipPressed: { backgroundColor: colors.border },
-  chipText: { fontSize: 14, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
-  chipTextLarge: { fontSize: 16 },
-  chipTextOn: { color: '#000' },
-  hint: { fontSize: 13, color: colors.textDim, lineHeight: 18 },
+  chipLarge: {
+    minWidth: 46,
+    height: 40,
+    paddingHorizontal: 12,
+  },
+  chipOn: {
+    backgroundColor: '#FFFFFF',
+  },
+  chipPressed: {
+    opacity: 0.7,
+  },
+  chipText: {
+    fontFamily: font.semibold,
+    fontSize: 14,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  chipTextLarge: {
+    fontSize: 16,
+  },
+  chipTextOn: {
+    color: '#000000',
+  },
+  hint: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textDim,
+    lineHeight: 18,
+    letterSpacing: -0.1,
+  },
 });

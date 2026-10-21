@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, radii, spacing, typography } from '../theme/tokens';
-import { PnlBadge } from './PnlBadge';
+import { colors } from '../theme/tokens';
+import { font } from '../theme/fonts';
 import type { DaySummary } from '../api/hisaabApi';
 
 interface HisaabCardProps {
@@ -11,127 +11,93 @@ interface HisaabCardProps {
 export const HisaabCard: React.FC<HisaabCardProps> = ({ summary }) => {
   const isProfit = summary.pnl.status === 'PROFIT';
   const isLoss = summary.pnl.status === 'LOSS';
-  const glowColor = isProfit
-    ? colors.surfaceGlow
+
+  const pillText = isProfit
+    ? `In profit, ${Math.abs(summary.pnl.amount).toLocaleString()} kcal`
     : isLoss
-    ? colors.surfaceLossGlow
-    : 'rgba(245, 158, 11, 0.08)';
+    ? `In loss, ${Math.abs(summary.pnl.amount).toLocaleString()} kcal`
+    : summary.pnl.label;
+
+  const pillColor = isProfit ? colors.profit : isLoss ? colors.loss : colors.accent;
+  const pillBg = isProfit
+    ? 'rgba(16, 185, 129, 0.15)'
+    : isLoss
+    ? 'rgba(255, 69, 58, 0.15)'
+    : 'rgba(245, 158, 11, 0.15)';
 
   return (
-    <View style={[styles.card, { borderColor: isProfit ? 'rgba(16, 185, 129, 0.3)' : isLoss ? 'rgba(239, 68, 68, 0.3)' : colors.border }]}>
-      <View style={[styles.glowBackground, { backgroundColor: glowColor }]} />
-
-      <View style={styles.headerRow}>
-        <Text style={styles.cardHeaderTitle}>DAILY BALANCE</Text>
-        <PnlBadge pnl={summary.pnl} size="md" />
-      </View>
-
+    <View style={styles.container}>
+      {/* Huge balance number + label */}
       <View style={styles.numberRow}>
-        <Text style={typography.balanceNumber}>
+        <Text style={styles.balanceNumber}>
           {summary.caloriesLeft.toLocaleString()}
         </Text>
-        <Text style={styles.unitText}>kcal</Text>
+      </View>
+      <Text style={styles.balanceLabel}>calories left</Text>
+
+      {/* Pill */}
+      <View style={[styles.pill, { backgroundColor: pillBg }]}>
+        <Text style={[styles.pillText, { color: pillColor }]}>{pillText}</Text>
       </View>
 
-      <Text style={styles.balanceLabel}>Calories left (Balance)</Text>
-
-      <View style={styles.divider} />
-
+      {/* Quiet row: Budget · Eaten · Burned */}
       <View style={styles.sublineRow}>
-        <View style={styles.subItem}>
-          <Text style={styles.subLabel}>Budget</Text>
-          <Text style={styles.subVal}>{summary.budget.toLocaleString()}</Text>
-        </View>
-        <Text style={styles.dotSeparator}>·</Text>
-        <View style={styles.subItem}>
-          <Text style={styles.subLabel}>Eaten</Text>
-          <Text style={styles.subVal}>{summary.eaten.toLocaleString()}</Text>
-        </View>
-        <Text style={styles.dotSeparator}>·</Text>
-        <View style={styles.subItem}>
-          <Text style={styles.subLabel}>Burned</Text>
-          <Text style={[styles.subVal, { color: summary.burned > 0 ? colors.profit : colors.text }]}>
-            +{summary.burned.toLocaleString()}
-          </Text>
-        </View>
+        <Text style={styles.sublineText}>
+          Budget {summary.budget.toLocaleString()} · Eaten {summary.eaten.toLocaleString()} · Burned {summary.burned.toLocaleString()}
+        </Text>
       </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    padding: spacing.xl,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  glowBackground: {
-    position: 'absolute',
-    top: -50,
-    right: -50,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  container: {
+    paddingVertical: 12,
     alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  cardHeaderTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textMute,
-    letterSpacing: 1,
   },
   numberRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: spacing.sm,
+    justifyContent: 'center',
   },
-  unitText: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: colors.textDim,
+  balanceNumber: {
+    fontFamily: font.bold,
+    fontSize: 56,
+    lineHeight: 64,
+    letterSpacing: -1.5,
+    fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
   balanceLabel: {
-    fontSize: 14,
+    fontFamily: font.medium,
+    fontSize: 16,
     color: colors.textDim,
+    letterSpacing: -0.2,
     marginTop: 2,
-    marginBottom: spacing.lg,
+    marginBottom: 10,
   },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginBottom: spacing.md,
+  pill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  pillText: {
+    fontFamily: font.semibold,
+    fontSize: 14,
+    letterSpacing: -0.2,
   },
   sublineRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  subItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  subLabel: {
-    fontSize: 13,
-    color: colors.textMute,
-  },
-  subVal: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  dotSeparator: {
-    color: colors.textMute,
+  sublineText: {
+    fontFamily: font.regular,
     fontSize: 14,
+    color: colors.textDim,
+    letterSpacing: -0.1,
   },
 });
-

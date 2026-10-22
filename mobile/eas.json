@@ -10,7 +10,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-YOUR-AZURE-DEFAULT-DOMAIN"
+        "EXPO_PUBLIC_API_URL": "https://hisaab-api-c0apbghbbtb0bngy.centralindia-01.azurewebsites.net"
       }
     },
     "production": {
@@ -18,7 +18,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-YOUR-AZURE-DEFAULT-DOMAIN"
+        "EXPO_PUBLIC_API_URL": "https://hisaab-api-c0apbghbbtb0bngy.centralindia-01.azurewebsites.net"
       }
     }
   }

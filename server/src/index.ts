@@ -35,9 +35,17 @@ const server = app.listen(config.PORT, '0.0.0.0', () => {
         s.state === 'ok'
           ? `  AI check: OK. ${s.model} is answering.
 `
-          : `  AI check FAILED (${s.state === 'error' ? s.model : ''}): ${s.state === 'error' ? s.error : ''}
-  Meal photos will fail until this is fixed. Check GEMINI_API_KEY / GEMINI_MODEL in server/.env
-`,
+          : s.state === 'limited'
+            ? `  AI check: Gemini is out of quota or busy right now (${s.error.slice(0, 120)}).
+` +
+              `  Photos may fail until it's back; text still works through Groq.
+`
+            : s.state === 'error'
+              ? `  AI check FAILED (${s.model}): ${s.error}
+` +
+                `  Meal photos will fail until this is fixed. Check GEMINI_API_KEY / GEMINI_MODEL in server/.env
+`
+              : '',
       ),
     );
   }

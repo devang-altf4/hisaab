@@ -375,7 +375,8 @@ export class HisaabApiClient {
     ok: boolean;
     aiMode: 'gemini' | 'mock';
     /** 'mock' = no key (sample results), 'error' = key/model rejected, 'ok' = AI answering */
-    aiStatus?: 'mock' | 'ok' | 'error';
+    /** "error" = setup problem (show a warning). "limited" = out of quota / busy for now. */
+    aiStatus?: 'mock' | 'checking' | 'ok' | 'limited' | 'error';
     aiError?: string | null;
     dbMode: string;
     model?: string | null;

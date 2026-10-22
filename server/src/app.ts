@@ -39,7 +39,7 @@ export function createApp(store: Store) {
       ok: true,
       aiMode: config.aiMode,
       aiStatus: ai.state,
-      aiError: ai.state === 'error' ? ai.error : null,
+      aiError: 'error' in ai ? ai.error : null,
       dbMode: store.kind,
       model: config.aiMode === 'gemini' ? config.GEMINI_MODEL : null,
       // Who answers coach / typed meals / reminders first

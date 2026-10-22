@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attemptOrder, cooldownFor, planRoute } from '../src/ai/gemini.js';
+import { attemptOrder, cooldownFor, failureState, planRoute } from '../src/ai/gemini.js';
 import { GroqError } from '../src/ai/groq.js';
 import { plainText } from '../src/ai/coach.js';
 
@@ -94,5 +94,27 @@ describe('attempt order', () => {
     const ids = attemptOrder(route, new Map([['groq:groq-a', now + 7000]]), now).map((s) => s.id);
     expect(ids[0]).toBe('groq:groq-b');
     expect(ids.at(-1)).toBe('groq:groq-a');
+  });
+});
+
+describe('AI status shown to the app', () => {
+  const err = (status: number, s: string) => Object.assign(new Error(JSON.stringify({ error: { code: status, status: s } })), { status });
+  const quota = err(429, 'RESOURCE_EXHAUSTED');
+  const busy = err(503, 'UNAVAILABLE');
+  const denied = err(403, 'PERMISSION_DENIED');
+  const retired = err(404, 'NOT_FOUND');
+
+  it('out of quota or busy is "limited" (no warning banner): it comes back on its own', () => {
+    expect(failureState([quota])).toBe('limited');
+    expect(failureState([busy, quota])).toBe('limited');
+  });
+
+  it('only a setup problem is "error" (warning banner)', () => {
+    expect(failureState([denied])).toBe('error');
+    expect(failureState([denied, retired])).toBe('error');
+  });
+
+  it('a refused second key plus a first key out of quota is still just "limited"', () => {
+    expect(failureState([quota, denied, quota])).toBe('limited');
   });
 });

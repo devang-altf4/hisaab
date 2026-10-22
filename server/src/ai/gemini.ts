@@ -57,6 +57,29 @@ function thinkingConfig(model: string): GenerateContentConfig['thinkingConfig'] 
   return { thinkingLevel: ThinkingLevel.LOW };
 }
 
+// ─── Status (shown by /api/health) ───────────────────────────
+
+/**
+ * Kept up to date by every Gemini call, not just the check at start-up. "error" puts a warning
+ * banner in the app, so it means a setup problem only (key refused, model retired). Out of quota
+ * or busy is "limited": temporary, and text still works through Groq.
+ */
+export type AiStatus =
+  | { state: 'mock' }
+  | { state: 'checking' | 'ok'; model: string }
+  | { state: 'limited' | 'error'; model: string; error: string };
+let aiStatus: AiStatus = geminiEnabled() ? { state: 'checking', model: config.GEMINI_MODEL } : { state: 'mock' };
+export const getAiStatus = () => aiStatus;
+
+const isSetupProblem = (err: unknown) => {
+  const cool = cooldownFor(err, 'gemini');
+  return !cool || cool.wholeKey === true || /\b404\b|NOT_FOUND/i.test(String((err as Error)?.message ?? err));
+};
+
+/** After every Gemini model failed: a setup problem only if none of the failures was temporary. */
+export const failureState = (errors: unknown[]): 'limited' | 'error' =>
+  errors.length > 0 && errors.every(isSetupProblem) ? 'error' : 'limited';
+
 // ─── Routing ─────────────────────────────────────────────────
 
 export type Provider = 'gemini' | 'groq';
@@ -179,6 +202,7 @@ export async function generate(opts: {
 
   const slots = routeFor(!opts.geminiOnly && !hasMedia(opts.contents));
   const refusedKeys = new Set<string>(); // a key refused outright: its other models will be too
+  const geminiErrors: unknown[] = [];
   let lastErr: unknown = new Error('No AI model configured');
 
   for (const s of attemptOrder(slots, coolingUntil, Date.now())) {
@@ -202,6 +226,7 @@ export async function generate(opts: {
       }
       const res = await callGemini(s.model, s.key, opts.contents, base);
       coolingUntil.delete(s.id);
+      aiStatus = { state: 'ok', model: s.model };
       const meta = res.usageMetadata ?? {};
       const inputTokens = (meta.promptTokenCount ?? 0) + (meta.toolUsePromptTokenCount ?? 0);
       const outputTokens = (meta.candidatesTokenCount ?? 0) + (meta.thoughtsTokenCount ?? 0);
@@ -210,6 +235,7 @@ export async function generate(opts: {
       const cool = cooldownFor(err, s.provider);
       if (!cool) throw err; // bad request: another model won't help
       lastErr = err;
+      if (s.provider === 'gemini') geminiErrors.push(err);
       const until = Date.now() + cool.ms;
       if (cool.wholeKey) refusedKeys.add(s.key);
       for (const t of cool.wholeKey ? slots.filter((x) => x.key === s.key) : [s]) coolingUntil.set(t.id, until);
@@ -218,6 +244,9 @@ export async function generate(opts: {
           `skipping ${cool.wholeKey ? 'that key' : 'it'} for ${Math.round(cool.ms / 1000)} s`,
       );
     }
+  }
+  if (geminiErrors.length) {
+    aiStatus = { state: failureState(geminiErrors), model: config.GEMINI_MODEL, error: String((lastErr as Error)?.message ?? lastErr).slice(0, 300) };
   }
   throw lastErr;
 }
@@ -228,25 +257,16 @@ export function parseJson<T>(text: string): T {
   return JSON.parse(cleaned) as T;
 }
 
-export type AiStatus = { state: 'mock' } | { state: 'ok'; model: string } | { state: 'error'; model: string; error: string };
-let aiStatus: AiStatus = geminiEnabled() ? { state: 'error', model: config.GEMINI_MODEL, error: 'not checked yet' } : { state: 'mock' };
-export const getAiStatus = () => aiStatus;
-
 /** One tiny Gemini call at boot so a bad key or retired model shows up in the log, not on the first photo. */
 export async function checkGemini(): Promise<AiStatus> {
   if (!geminiEnabled()) return (aiStatus = { state: 'mock' });
-  try {
-    const { model } = await generate({
-      systemInstruction: 'Reply with the single word OK.',
-      contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
-      maxOutputTokens: 16,
-      temperature: 0,
-      geminiOnly: true,
-    });
-    aiStatus = { state: 'ok', model };
-  } catch (err) {
-    const raw = String((err as Error)?.message ?? err);
-    aiStatus = { state: 'error', model: config.GEMINI_MODEL, error: raw.slice(0, 300) };
-  }
+  // generate() sets the status (ok / limited / error) from what Gemini answers
+  await generate({
+    systemInstruction: 'Reply with the single word OK.',
+    contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+    maxOutputTokens: 16,
+    temperature: 0,
+    geminiOnly: true,
+  }).catch(() => undefined);
   return aiStatus;
 }

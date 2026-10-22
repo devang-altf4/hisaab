@@ -98,16 +98,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleHealthToggle = (type: 'appleHealth' | 'healthConnect', val: boolean) => {
-    api.healthSync.updateSettings({ [type]: val }).then(refreshUser);
-    if (val) {
-      Alert.alert(
-        'Dev build required',
-        'Direct HealthKit / Health Connect sync requires a native dev build. Use "Sync a demo workout" below to test the workout flow.'
-      );
-    }
-  };
-
   const handleSyncDemoWorkout = () => {
     const fakeWorkout = {
       externalId: Crypto.randomUUID(),
@@ -352,25 +342,18 @@ export default function ProfileScreen() {
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionTitle}>Health sync</Text>
           <View style={styles.group}>
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>Apple Health</Text>
-              <Switch
-                value={Boolean(user?.healthSync?.appleHealth)}
-                onValueChange={(val) => handleHealthToggle('appleHealth', val)}
-                trackColor={{ false: colors.control, true: colors.profit }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-            <View style={styles.separator} />
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>Health Connect</Text>
-              <Switch
-                value={Boolean(user?.healthSync?.healthConnect)}
-                onValueChange={(val) => handleHealthToggle('healthConnect', val)}
-                trackColor={{ false: colors.control, true: colors.profit }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
+            {/* Reading HealthKit / Health Connect needs a native build: not in the demo yet */}
+            {['Apple Health', 'Google Health Connect'].map((name, idx) => (
+              <React.Fragment key={name}>
+                {idx > 0 && <View style={styles.separator} />}
+                <View style={styles.row} accessible accessibilityLabel={`${name}, coming soon`}>
+                  <Text style={styles.rowLabel}>{name}</Text>
+                  <View style={styles.soonPill}>
+                    <Text style={styles.soonText}>Coming soon</Text>
+                  </View>
+                </View>
+              </React.Fragment>
+            ))}
             <View style={styles.separator} />
             <TouchableOpacity
               style={styles.row}
@@ -893,6 +876,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
     fontVariant: ['tabular-nums'],
+  },
+  soonPill: {
+    backgroundColor: colors.control,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  soonText: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.textDim,
   },
   rowValueDim: {
     flexShrink: 1,

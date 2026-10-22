@@ -1,86 +1,90 @@
 # Deploy the Hisaab API to Azure (demo)
 
-Azure App Service, Linux, **Basic B1** (1 core, 1.75 GB, "Always on"). That's plenty for a demo:
-the heavy work happens at Google and Groq. B2 doubles the price for nothing you'd notice.
-Free (F1) can't stay on: it sleeps when idle and has a daily CPU cap.
+Uses the **existing B1 plan** `ASP-devangserver-9c83` (Linux, Central India, resource group
+`devang-server`) that already runs `callingagent` and `readora`. Apps in one plan share it,
+so this costs nothing extra. Deploys from GitHub: every `git push` redeploys automatically.
 
-Already have a **Linux** Basic plan (check with `az appservice plan list -o table`)? Put this app
-in it with `-p <that plan>` and skip step 2: apps sharing a plan cost nothing extra.
+## 1. Put the server on GitHub (once)
 
-Run everything in PowerShell from `server/`. Replace `hisaab-api-devang` with any unused name.
-
-## 0. One-time setup
+On github.com: **New repository** → name `hisaab-api` → **Private** → leave README, .gitignore and
+license off → Create. Then in PowerShell:
 
 ```powershell
-winget install -e --id Microsoft.AzureCLI   # then open a new terminal
-az login
+cd D:\WORK\hisaab\server
+git remote add origin https://github.com/<your-username>/hisaab-api.git
+git push -u origin main
 ```
 
-## 1. Build the upload (rerun after every server change)
+`.env`, `deploy/` and uploaded photos are git-ignored: your keys never reach GitHub.
 
-```powershell
-npx tsx scripts/pack-azure.ts
-```
+## 2. Create the web app (once)
 
-Creates `deploy/hisaab-api.zip` and `deploy/appsettings.azure.json` (your `.env` as Azure settings,
-plus `NODE_ENV=production`, `UPLOAD_DIR=/home/data/uploads`, `ALLOW_MOCK_UPGRADE=true`).
-`deploy/` holds your keys: it's git-ignored, never share it.
+Portal → **App Services** → **Create** → **Web App**:
 
-## 2. Create the server (once)
+| Tab | Field | Value |
+|---|---|---|
+| Basics | Subscription | Azure for Students |
+| | Resource group | `devang-server` |
+| | Name | `hisaab-api` (Azure adds a unique suffix to the domain) |
+| | Publish | Code |
+| | Runtime stack | **Node 22 LTS** |
+| | Operating system | **Linux** |
+| | Region | **Central India** (the plan only shows up in its own region) |
+| | Linux Plan | **ASP-devangserver-9c83 (B1)**, the existing one |
+| Deployment | Continuous deployment | **Enable** → GitHub → sign in → your account, repo `hisaab-api`, branch `main` |
 
-```powershell
-az group create -n hisaab-demo -l centralindia
-az appservice plan create -g hisaab-demo -n hisaab-plan --is-linux --sku B1
-az webapp create -g hisaab-demo -p hisaab-plan -n hisaab-api-devang --runtime "NODE:22-lts"
-az webapp config set -g hisaab-demo -n hisaab-api-devang --always-on true --startup-file "node dist/index.js"
-az webapp update -g hisaab-demo -n hisaab-api-devang --https-only true
-az webapp config appsettings set -g hisaab-demo -n hisaab-api-devang --settings "@deploy/appsettings.azure.json" --output none
-```
+**Review + create** → **Create**. Azure adds a workflow file to the repo
+(`.github/workflows/main_hisaab-api.yml`) and starts it: install → build → run the 71 tests → deploy.
+Watch it on GitHub → **Actions** (about 3–5 minutes). Afterwards run `git pull` once, so your
+copy has that file too.
 
-`--output none` matters: without it Azure prints every setting, keys included.
+## 3. Settings (once, while the first deploy runs)
 
-## 3. Let Azure reach MongoDB Atlas (once)
+1. Make the settings file (it also builds a zip you can ignore):
+   ```powershell
+   npx tsx scripts/pack-azure.ts
+   ```
+2. Web app → **Settings → Environment variables** → **App settings** → **Advanced edit** →
+   select everything, paste the contents of `server\deploy\appsettings.azure.json` → **OK** →
+   **Apply** → **Confirm**. That file holds your keys: don't share it.
+3. Web app → **Settings → Configuration** → **General settings**:
+   - **Startup Command**: `npm start`
+   - **Always on**: On
+   - **HTTPS Only**: On
+   → **Save** → Continue.
+4. Optional: **Monitoring → Health check** → path `/api/health` → Save.
 
-Atlas → **Network Access** → **Add IP Address** → **Allow access from anywhere** (`0.0.0.0/0`) for the demo.
-Tighter: add each address from
-`az webapp show -g hisaab-demo -n hisaab-api-devang --query possibleOutboundIpAddresses -o tsv`.
+## 4. Let Azure reach MongoDB Atlas (once)
 
-## 4. Upload
-
-```powershell
-az webapp deploy -g hisaab-demo -n hisaab-api-devang --src-path deploy/hisaab-api.zip --type zip
-```
+Atlas → **Network Access** → **Add IP Address** → **Allow access from anywhere** (`0.0.0.0/0`) → Confirm.
+Without this the server can't reach the database and won't start.
 
 ## 5. Check it
 
-```powershell
-$hostName = az webapp show -g hisaab-demo -n hisaab-api-devang --query defaultHostName -o tsv
-curl.exe "https://$hostName/api/health"
-```
+Copy **Default domain** from the web app's Overview and open `https://<default domain>/api/health`.
+Expect `"ok":true` and `"dbMode":"mongo"`. `aiStatus` turns `"ok"` a few seconds after a start.
+Not working? Web app → **Log stream**.
 
-Expect `"ok":true,"aiStatus":"ok","dbMode":"mongo"`. If not:
-`az webapp log tail -g hisaab-demo -n hisaab-api-devang`.
-
-## 6. Point the app at it
-
-In `mobile/.env`: `EXPO_PUBLIC_API_URL=https://<hostName>` then `npx expo start -c`.
-For a phone on another network (the CEO's), start Metro with `npx expo start --tunnel`.
+Then point the app at it: see `mobile/BUILD_APK.md` (APK) or set
+`EXPO_PUBLIC_API_URL=https://<default domain>` in `mobile/.env` and run `npx expo start -c` (Expo Go).
 
 Stop the local server (`npm run dev`) once Azure is live: both use the same database, and two
 servers would send duplicate reminder notifications. Photos logged on the local server stay on
-your PC; new ones are stored on Azure.
+your PC; new ones are stored on Azure (`/home/data/uploads`, kept across redeploys).
 
-## Redeploy after changes
-
-```powershell
-npx tsx scripts/pack-azure.ts
-az webapp deploy -g hisaab-demo -n hisaab-api-devang --src-path deploy/hisaab-api.zip --type zip
-```
-
-Changed `.env`? Also rerun the `appsettings set` line from step 2.
-
-## Remove everything (when the CEO's own server is ready)
+## Every change after that
 
 ```powershell
-az group delete -n hisaab-demo --yes
+git add -A
+git commit -m "what changed"
+git push
 ```
+
+GitHub Actions tests and redeploys it. Changed `.env`? Rerun step 3.1–3.2 (Advanced edit again).
+
+## Notes
+
+- The B1 plan now runs three apps in 1.75 GB of memory; Hisaab uses about 100–150 MB. If things
+  get slow: plan → **Metrics** → Memory percentage.
+- Remove it later: delete only the `hisaab-api` web app. Don't delete the plan or the resource
+  group: `callingagent` and `readora` live there too.

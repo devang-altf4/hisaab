@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -298,7 +299,7 @@ function Welcome() {
     <View style={styles.flex}>
       <View style={styles.brandRow}>
         <View style={styles.appTile}>
-          <Text style={styles.appTileText}>H</Text>
+          <Image source={require('../assets/images/logo-mark.png')} style={styles.appTileMark} accessibilityIgnoresInvertColors />
         </View>
         <Text style={styles.wordmark}>Hisaab</Text>
       </View>
@@ -450,15 +451,16 @@ const styles = StyleSheet.create({
 
   // Welcome
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
+  // Same look as the home-screen icon: the mark on white
   appTile: {
     width: 34,
     height: 34,
     borderRadius: 8,
-    backgroundColor: ob.profit,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  appTileText: { fontFamily: font.heavy, fontSize: 19, color: '#FFFFFF' },
+  appTileMark: { width: 24, height: 23 },
   wordmark: { fontFamily: font.bold, fontSize: 20, letterSpacing: -0.4, color: ob.label },
   heroTitle: {
     fontFamily: font.bold,

@@ -57,6 +57,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6a5ae94b-5dcd-4fba-b8dd-2d5edf350b65"
+      }
+    },
+    "owner": "devang29"
   }
 }

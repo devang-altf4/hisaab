@@ -24,6 +24,7 @@ import {
   useTrainerClients,
   useLinkTrainer,
   useRevokeTrainer,
+  useUnlinkClient,
   useSyncHealth,
 } from '../../src/api/queries';
 import { api } from '../../src/api/client';
@@ -54,6 +55,7 @@ export default function ProfileScreen() {
 
   const linkTrainerMutation = useLinkTrainer();
   const revokeTrainerMutation = useRevokeTrainer();
+  const unlinkClientMutation = useUnlinkClient();
   const syncHealthMutation = useSyncHealth();
 
   // Modals & local controls
@@ -163,6 +165,21 @@ export default function ProfileScreen() {
     Alert.alert('Sign out?', 'You can sign back in with your email and password on any phone.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: () => void signOut() },
+    ]);
+  };
+
+  // Long-press a client (or use "Unlink" on their screen) to stop viewing their log.
+  const handleUnlinkClient = (id: string, name: string) => {
+    Alert.alert(`Unlink ${name}?`, `You’ll stop seeing ${name}’s log. They can share their code again anytime.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Unlink',
+        style: 'destructive',
+        onPress: () =>
+          unlinkClientMutation.mutate(id, {
+            onError: (err: any) => Alert.alert('Couldn’t unlink', err?.message || 'Try again.'),
+          }),
+      },
     ]);
   };
 
@@ -432,6 +449,8 @@ export default function ProfileScreen() {
                   <TouchableOpacity
                     style={styles.row}
                     onPress={() => router.push(`/trainer/${c.id}` as any)}
+                    onLongPress={() => handleUnlinkClient(c.id, c.name)}
+                    accessibilityHint="Opens their day. Long-press to unlink."
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={styles.rowLabel}>{c.name}</Text>

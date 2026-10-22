@@ -7,12 +7,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { colors, radii } from '../../src/theme/tokens';
 import { font } from '../../src/theme/fonts';
-import { useTrainerClientDashboard } from '../../src/api/queries';
+import { useTrainerClientDashboard, useUnlinkClient } from '../../src/api/queries';
 import { localDateKey, daysAgoKey, formatHeaderDate } from '../../src/lib/dates';
 import { HisaabCard } from '../../src/components/HisaabCard';
 import { MacroRingsRow } from '../../src/components/MacroRing';
@@ -29,6 +30,7 @@ export default function TrainerClientDashboardScreen() {
   }, [isYesterday]);
 
   const { data, isLoading, isRefetching, refetch } = useTrainerClientDashboard(clientId!, selectedDate);
+  const unlinkMutation = useUnlinkClient();
 
   const client = data?.client;
   const dashboard = data?.dashboard;
@@ -36,6 +38,22 @@ export default function TrainerClientDashboardScreen() {
   const meals = dashboard?.meals || [];
   // No "Yesterday" for a client who joined today: that day didn't exist for them.
   const hasYesterday = !client?.joinedOn || client.joinedOn <= daysAgoKey(1);
+
+  const confirmUnlink = () => {
+    const name = client?.name || 'this client';
+    Alert.alert(`Unlink ${name}?`, `You’ll stop seeing ${name}’s log. They can share their code again anytime.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Unlink',
+        style: 'destructive',
+        onPress: () =>
+          unlinkMutation.mutate(clientId!, {
+            onSuccess: () => router.back(),
+            onError: (err: any) => Alert.alert('Couldn’t unlink', err?.message || 'Try again.'),
+          }),
+      },
+    ]);
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -115,6 +133,20 @@ export default function TrainerClientDashboardScreen() {
                 </View>
               )}
             </View>
+
+            {/* Trainer can stop viewing this client */}
+            <TouchableOpacity
+              style={styles.unlinkRow}
+              onPress={confirmUnlink}
+              disabled={unlinkMutation.isPending}
+              accessibilityRole="button"
+            >
+              {unlinkMutation.isPending ? (
+                <ActivityIndicator color={colors.loss} />
+              ) : (
+                <Text style={styles.unlinkText}>Unlink {client?.name || 'client'}</Text>
+              )}
+            </TouchableOpacity>
           </>
         ) : null}
       </ScrollView>
@@ -214,6 +246,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
+  },
+  unlinkRow: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  unlinkText: {
+    fontFamily: font.medium,
+    fontSize: 16,
+    color: colors.loss,
   },
   emptyContainer: {
     backgroundColor: colors.card,

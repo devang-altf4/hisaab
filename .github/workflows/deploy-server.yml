@@ -34,7 +34,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test (offline: memory database + mock AI)
+      - name: Test (offline, memory database + mock AI)
         run: npm test
 
       - name: Keep only runtime dependencies

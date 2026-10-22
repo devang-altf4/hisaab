@@ -134,6 +134,18 @@ export function cooldownFor(err: unknown, provider: Provider): { ms: number; who
   return null;
 }
 
+/**
+ * Who to try, in order: everything ready first (in route order), then what is cooling down,
+ * soonest back first, as a last resort rather than failing outright. A main model that was only
+ * briefly busy (1 minute) then comes before backups that are out of quota for the day.
+ */
+export function attemptOrder(slots: Slot[], cooling: Map<string, number>, now: number): Slot[] {
+  const until = (s: Slot) => cooling.get(s.id) ?? 0;
+  const ready = slots.filter((s) => until(s) <= now);
+  const waiting = slots.filter((s) => until(s) > now).sort((a, b) => until(a) - until(b));
+  return [...ready, ...waiting];
+}
+
 async function callGemini(model: string, apiKey: string, contents: Content[], base: GenerateContentConfig) {
   const call = (cfg: GenerateContentConfig) => gemini(apiKey).models.generateContent({ model, contents, config: cfg });
   try {
@@ -166,13 +178,11 @@ export async function generate(opts: {
   };
 
   const slots = routeFor(!opts.geminiOnly && !hasMedia(opts.contents));
-  const isReady = (s: Slot) => (coolingUntil.get(s.id) ?? 0) <= Date.now();
-  // Everything cooling down: try them all anyway rather than fail without asking.
-  const tryAll = !slots.some(isReady);
+  const refusedKeys = new Set<string>(); // a key refused outright: its other models will be too
   let lastErr: unknown = new Error('No AI model configured');
 
-  for (const s of slots) {
-    if (!tryAll && !isReady(s)) continue; // may have just been cooled with its whole key
+  for (const s of attemptOrder(slots, coolingUntil, Date.now())) {
+    if (refusedKeys.has(s.key)) continue;
     try {
       if (s.provider === 'groq') {
         const r = await callGroq(s.model, s.key, {
@@ -201,6 +211,7 @@ export async function generate(opts: {
       if (!cool) throw err; // bad request: another model won't help
       lastErr = err;
       const until = Date.now() + cool.ms;
+      if (cool.wholeKey) refusedKeys.add(s.key);
       for (const t of cool.wholeKey ? slots.filter((x) => x.key === s.key) : [s]) coolingUntil.set(t.id, until);
       console.warn(
         `[ai] ${s.id} unavailable (${String((err as Error)?.message ?? err).slice(0, 120)}); ` +

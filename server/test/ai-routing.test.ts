@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cooldownFor, planRoute } from '../src/ai/gemini.js';
+import { attemptOrder, cooldownFor, planRoute } from '../src/ai/gemini.js';
 import { GroqError } from '../src/ai/groq.js';
 import { plainText } from '../src/ai/coach.js';
 
@@ -73,5 +73,26 @@ describe('coach replies are plain text', () => {
     expect(plainText(groqStyle)).toBe(
       'A typical slice of cake is about 250 kcal.\n• Balance before: 1,773 kcal left\n• Balance after: 1,523 kcal left\n\nTip\nGo easy.',
     );
+  });
+});
+
+describe('attempt order', () => {
+  it('a briefly busy main model is still tried before giving up, ahead of backups out of quota for the day', () => {
+    // What happened on Azure: the main model timed out once (skipped 1 min), the backups were out of quota (1 h)
+    const route = planRoute({ ...setup, geminiKeys: ['g-key-1'], groqKey: '', textOnly: false });
+    const now = 1_000_000;
+    const cooling = new Map([
+      ['gemini#1:gemini-main', now + 60_000],
+      ['gemini#1:gemini-backup', now + 3_600_000],
+    ]);
+    expect(attemptOrder(route, cooling, now).map((s) => s.id)).toEqual(['gemini#1:gemini-main', 'gemini#1:gemini-backup']);
+  });
+
+  it('ready ones keep their route order and come first', () => {
+    const route = planRoute({ ...setup, textOnly: true });
+    const now = 1_000_000;
+    const ids = attemptOrder(route, new Map([['groq:groq-a', now + 7000]]), now).map((s) => s.id);
+    expect(ids[0]).toBe('groq:groq-b');
+    expect(ids.at(-1)).toBe('groq:groq-a');
   });
 });

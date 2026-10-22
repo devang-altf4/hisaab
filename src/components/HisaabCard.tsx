@@ -3,27 +3,19 @@ import { View, Text, StyleSheet } from 'react-native';
 import { colors } from '../theme/tokens';
 import { font } from '../theme/fonts';
 import type { DaySummary } from '../api/hisaabApi';
+import { localDateKey } from '../lib/dates';
+import { pnlText, pnlTone, toneBg, toneColor } from '../lib/pnl';
 
 interface HisaabCardProps {
   summary: DaySummary;
 }
 
 export const HisaabCard: React.FC<HisaabCardProps> = ({ summary }) => {
-  const isProfit = summary.pnl.status === 'PROFIT';
-  const isLoss = summary.pnl.status === 'LOSS';
-
-  const pillText = isProfit
-    ? `In profit, ${Math.abs(summary.pnl.amount).toLocaleString()} kcal`
-    : isLoss
-    ? `In loss, ${Math.abs(summary.pnl.amount).toLocaleString()} kcal`
-    : summary.pnl.label;
-
-  const pillColor = isProfit ? colors.profit : isLoss ? colors.loss : colors.accent;
-  const pillBg = isProfit
-    ? 'rgba(16, 185, 129, 0.15)'
-    : isLoss
-    ? 'rgba(255, 69, 58, 0.15)'
-    : 'rgba(245, 158, 11, 0.15)';
+  // Gain goal under budget reads "Need X kcal more", not "In loss" (see lib/pnl)
+  const tone = pnlTone(summary.pnl, summary.goal);
+  const pillText = pnlText(summary.pnl, summary.goal, { past: summary.date < localDateKey() });
+  const pillColor = toneColor[tone];
+  const pillBg = toneBg[tone];
 
   return (
     <View style={styles.container}>

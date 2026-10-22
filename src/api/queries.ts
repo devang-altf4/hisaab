@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type {
   BarcodeProduct,
+  ChatMessage,
   DashboardResponse,
   DaySummary,
   LedgerRange,
@@ -293,11 +294,28 @@ export function useDeleteWorkout() {
   });
 }
 
+/**
+ * The user's message shows up the moment they send it (the coach can take a few seconds),
+ * and the reply is added as soon as it arrives. On failure the message is taken back out.
+ */
 export function useSendChatMessage() {
   const queryClient = useQueryClient();
+  const key = queryKeys.chatHistory();
+  type History = { messages: ChatMessage[] };
   return useMutation({
     mutationFn: (message: string) => api.chat.send(message),
-    onSuccess: () => {
+    onMutate: async (message: string) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const before = queryClient.getQueryData<History>(key);
+      const mine: ChatMessage = { id: `local-${Date.now()}`, role: 'user', text: message, createdAt: new Date().toISOString() };
+      queryClient.setQueryData<History>(key, { messages: [...(before?.messages ?? []), mine] });
+      return { before };
+    },
+    onError: (_err, _message, ctx) => {
+      if (ctx) queryClient.setQueryData<History>(key, ctx.before);
+    },
+    onSuccess: ({ reply }) => {
+      queryClient.setQueryData<History>(key, (h) => ({ messages: [...(h?.messages ?? []), reply] }));
       queryClient.invalidateQueries({ queryKey: ['chat'] });
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
     },

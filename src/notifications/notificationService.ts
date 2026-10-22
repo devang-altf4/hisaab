@@ -81,6 +81,15 @@ export async function registerPushToken(): Promise<string | null> {
   return null;
 }
 
+/** On sign-out: this phone shouldn't keep reminding the person who just left. */
+export async function cancelScheduledReminders(): Promise<void> {
+  try {
+    await getNotifications()?.cancelAllScheduledNotificationsAsync();
+  } catch (err) {
+    console.warn('[notifications] cancel failed:', err);
+  }
+}
+
 export async function syncNotificationSchedule(count: number): Promise<void> {
   const Notifications = getNotifications();
   if (!Notifications) return;

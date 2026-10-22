@@ -1,5 +1,5 @@
 import { HisaabApiClient } from './hisaabApi';
-import { getDeviceId, getToken, saveToken } from '../auth/authStorage';
+import { clearToken, emitSessionExpired, getDeviceId, getToken } from '../auth/authStorage';
 import Constants from 'expo-constants';
 
 function resolveDefaultApiUrl(): string {
@@ -32,24 +32,11 @@ export const api = new HisaabApiClient({
   getDeviceId: async () => {
     return await getDeviceId();
   },
+  // Saved token rejected: drop it and send the user to the welcome screen (never a silent new guest,
+  // which would hide their real account behind an empty one).
   onUnauthorized: async () => {
-    try {
-      const deviceId = await getDeviceId();
-      const res = await fetch(`${api.getBaseUrl()}/api/auth/guest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId }),
-      });
-      if (res.ok) {
-        const json = (await res.json()) as { token: string };
-        if (json.token) {
-          await saveToken(json.token);
-          return json.token;
-        }
-      }
-    } catch (e) {
-      console.warn('[api client] onUnauthorized token refresh failed:', e);
-    }
+    await clearToken();
+    emitSessionExpired();
     return null;
   },
 });

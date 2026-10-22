@@ -18,18 +18,23 @@ import { TrackersRow } from '../../src/components/TrackersRow';
 import { MealCard } from '../../src/components/MealCard';
 import { WorkoutModal } from '../../src/components/WorkoutModal';
 import { useDashboard, useServerHealth } from '../../src/api/queries';
+import { useAuth } from '../../src/auth/AuthContext';
 import { localDateKey, addDays, isToday, formatHeaderDate } from '../../src/lib/dates';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 
 export default function HomeScreen() {
   // `at` changes on every Ledger tap, so tapping the same day again still jumps to it
   const { date: paramDate, at: paramAt } = useLocalSearchParams<{ date?: string; at?: string }>();
-  const [selectedDate, setSelectedDate] = useState<string>(paramDate || localDateKey());
+  const { user } = useAuth();
+  // History starts on the day the account was made: nothing before it ever existed.
+  const firstDay = user?.joinedOn ?? localDateKey();
+  const clampDate = (d: string) => (d < firstDay ? firstDay : d);
+  const [selectedDate, setSelectedDate] = useState<string>(clampDate(paramDate || localDateKey()));
   const [workoutModalVisible, setWorkoutModalVisible] = useState(false);
 
   useEffect(() => {
     if (paramDate) {
-      setSelectedDate(paramDate);
+      setSelectedDate(clampDate(paramDate));
     }
   }, [paramDate, paramAt]);
 
@@ -48,7 +53,10 @@ export default function HomeScreen() {
   const meals = data?.meals ?? [];
 
   const canStepForward = !isToday(selectedDate);
-  const stepBack = () => setSelectedDate((curr) => addDays(curr, -1));
+  const canStepBack = selectedDate > firstDay;
+  const stepBack = () => {
+    if (canStepBack) setSelectedDate((curr) => clampDate(addDays(curr, -1)));
+  };
   const stepForward = () => {
     if (canStepForward) {
       setSelectedDate((curr) => addDays(curr, 1));
@@ -73,11 +81,13 @@ export default function HomeScreen() {
           <TouchableOpacity
             onPress={stepBack}
             hitSlop={8}
-            style={styles.dateArrow}
+            disabled={!canStepBack}
+            style={[styles.dateArrow, !canStepBack && styles.dateArrowDisabled]}
             accessibilityRole="button"
             accessibilityLabel="Previous day"
+            accessibilityState={{ disabled: !canStepBack }}
           >
-            <ChevronLeft size={20} color={colors.text} strokeWidth={2.4} />
+            <ChevronLeft size={20} color={canStepBack ? colors.text : colors.textMute} strokeWidth={2.4} />
           </TouchableOpacity>
           <Text style={styles.dateLabel}>{dateLabel}</Text>
           <TouchableOpacity
@@ -154,6 +164,7 @@ export default function HomeScreen() {
                     <View key={meal.id} style={styles.mealRowWrap}>
                       <MealCard
                         meal={meal}
+                        goal={user?.profile?.goal}
                         onDescribeInstead={() => router.push('/capture' as any)}
                       />
                       {idx < meals.length - 1 && <View style={styles.separator} />}

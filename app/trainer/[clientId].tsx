@@ -34,6 +34,8 @@ export default function TrainerClientDashboardScreen() {
   const dashboard = data?.dashboard;
   const summary = dashboard?.summary;
   const meals = dashboard?.meals || [];
+  // No "Yesterday" for a client who joined today: that day didn't exist for them.
+  const hasYesterday = !client?.joinedOn || client.joinedOn <= daysAgoKey(1);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -54,20 +56,22 @@ export default function TrainerClientDashboardScreen() {
         </View>
 
         {/* Today / Yesterday Toggle */}
-        <View style={styles.segmented}>
-          <TouchableOpacity
-            style={[styles.segmentBtn, !isYesterday && styles.segmentBtnOn]}
-            onPress={() => setIsYesterday(false)}
-          >
-            <Text style={[styles.segmentText, !isYesterday && styles.segmentTextOn]}>Today</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.segmentBtn, isYesterday && styles.segmentBtnOn]}
-            onPress={() => setIsYesterday(true)}
-          >
-            <Text style={[styles.segmentText, isYesterday && styles.segmentTextOn]}>Yesterday</Text>
-          </TouchableOpacity>
-        </View>
+        {hasYesterday && (
+          <View style={styles.segmented}>
+            <TouchableOpacity
+              style={[styles.segmentBtn, !isYesterday && styles.segmentBtnOn]}
+              onPress={() => setIsYesterday(false)}
+            >
+              <Text style={[styles.segmentText, !isYesterday && styles.segmentTextOn]}>Today</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segmentBtn, isYesterday && styles.segmentBtnOn]}
+              onPress={() => setIsYesterday(true)}
+            >
+              <Text style={[styles.segmentText, isYesterday && styles.segmentTextOn]}>Yesterday</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       <ScrollView
@@ -104,7 +108,7 @@ export default function TrainerClientDashboardScreen() {
                 <View style={styles.mealsGroup}>
                   {meals.map((meal, idx) => (
                     <View key={meal.id} style={styles.mealRowWrap}>
-                      <MealCard meal={meal} readOnly />
+                      <MealCard meal={meal} goal={client?.goal} readOnly />
                       {idx < meals.length - 1 && <View style={styles.separator} />}
                     </View>
                   ))}

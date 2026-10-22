@@ -29,17 +29,30 @@ function RootNavigation() {
   const segments = useSegments();
   const notificationsPerDay = user?.notificationsPerDay;
 
+  // Signed out → welcome (onboarding step 0) or sign-in. Guest → onboarding, then "Create your
+  // account". Account → the app. Onboarding moves itself to create-account at its end, so it is
+  // never yanked away mid-flow the moment the profile is saved.
+  const hasAccount = Boolean(user?.email);
   useEffect(() => {
-    if (isLoading || !user) return;
+    if (isLoading) return;
+    const seg = segments[0] as string | undefined;
+    // Clear the stack first, so Back can't return to a screen from the previous state
+    // (e.g. onboarding under the app after signing in).
+    const go = (path: string) => {
+      if (router.canDismiss()) router.dismissAll();
+      router.replace(path as any);
+    };
 
-    const inOnboarding = segments[0] === 'onboarding';
-
-    // Onboarding navigates to the tabs itself after its final "daily capital" step,
-    // so don't yank the user out the moment the profile is saved.
-    if (!isOnboarded && !inOnboarding) {
-      router.replace('/onboarding' as any);
+    if (!user) {
+      if (seg !== 'onboarding' && seg !== 'sign-in') go('/onboarding');
+    } else if (!isOnboarded) {
+      if (seg !== 'onboarding' && seg !== 'sign-in') go('/onboarding');
+    } else if (!hasAccount) {
+      if (seg !== 'create-account' && seg !== 'onboarding' && seg !== 'sign-in') go('/create-account');
+    } else if (seg === 'onboarding' || seg === 'sign-in' || seg === 'create-account') {
+      go('/(tabs)');
     }
-  }, [isLoading, isOnboarded, segments]);
+  }, [isLoading, user, isOnboarded, hasAccount, segments]);
 
   useEffect(() => {
     const unsub = setupNotificationResponseListener();
@@ -90,6 +103,8 @@ function RootNavigation() {
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen name="sign-in" options={{ headerShown: false, animation: 'slide_from_right' }} />
+        <Stack.Screen name="create-account" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen
           name="capture"
           options={{

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Check, ChevronLeft, Minus, Plus } from 'lucide-react-native';
+import { Check, ChevronLeft, Eye, EyeOff, Minus, Plus } from 'lucide-react-native';
 import { font } from '../theme/fonts';
 import { colors } from '../theme/tokens';
 
@@ -241,6 +241,83 @@ function RoundIcon({ children, onPress, label }: { children: React.ReactNode; on
   );
 }
 
+/** Email + password as one grouped list (Settings-style), with a show/hide toggle on the password. */
+export function CredentialFields({
+  email,
+  password,
+  onEmail,
+  onPassword,
+  onSubmit,
+  newPassword,
+}: {
+  email: string;
+  password: string;
+  onEmail: (v: string) => void;
+  onPassword: (v: string) => void;
+  onSubmit: () => void;
+  /** true on "create account": the phone offers a strong password and saves it */
+  newPassword?: boolean;
+}) {
+  const [shown, setShown] = useState(false);
+  const passwordRef = React.useRef<TextInput>(null);
+  return (
+    <View style={s.group}>
+      <View style={s.fieldRow}>
+        <Text style={s.fieldLabel}>Email</Text>
+        <TextInput
+          value={email}
+          onChangeText={onEmail}
+          placeholder="you@example.com"
+          placeholderTextColor={ob.tertiary}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
+          textContentType={newPassword ? 'username' : 'emailAddress'}
+          returnKeyType="next"
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          maxLength={254}
+          selectionColor={ob.label}
+          style={s.fieldInput}
+          accessibilityLabel="Email"
+        />
+      </View>
+      <View style={s.fieldSeparator} />
+      <View style={s.fieldRow}>
+        <Text style={s.fieldLabel}>Password</Text>
+        <TextInput
+          ref={passwordRef}
+          value={password}
+          onChangeText={onPassword}
+          placeholder={newPassword ? 'At least 8 characters' : 'Required'}
+          placeholderTextColor={ob.tertiary}
+          secureTextEntry={!shown}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete={newPassword ? 'new-password' : 'current-password'}
+          textContentType={newPassword ? 'newPassword' : 'password'}
+          returnKeyType="go"
+          onSubmitEditing={onSubmit}
+          maxLength={128}
+          selectionColor={ob.label}
+          style={s.fieldInput}
+          accessibilityLabel="Password"
+        />
+        <Pressable
+          onPress={() => setShown((v) => !v)}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={shown ? 'Hide password' : 'Show password'}
+        >
+          {shown ? <EyeOff size={20} color={ob.secondary} /> : <Eye size={20} color={ob.secondary} />}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+export const looksLikeEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
 export function ErrorLine({ text }: { text: string | null }) {
   if (!text) return null;
   return (
@@ -335,4 +412,18 @@ const s = StyleSheet.create({
   },
 
   error: { fontFamily: font.medium, fontSize: 15, lineHeight: 21, color: ob.loss, marginTop: 16, marginLeft: 16 },
+
+  fieldRow: { flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 16, gap: 12 },
+  fieldLabel: { width: 84, fontFamily: font.regular, fontSize: 17, letterSpacing: -0.3, color: ob.label },
+  fieldInput: {
+    flex: 1,
+    fontFamily: font.regular,
+    fontSize: 17,
+    letterSpacing: -0.3,
+    color: ob.label,
+    paddingVertical: 14,
+    paddingHorizontal: 0,
+    outlineWidth: 0, // web: no browser focus ring
+  },
+  fieldSeparator: { height: StyleSheet.hairlineWidth, backgroundColor: ob.separator, marginLeft: 16 },
 });

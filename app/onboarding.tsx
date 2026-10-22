@@ -71,7 +71,7 @@ function useReducedMotion() {
 }
 
 export default function OnboardingScreen() {
-  const { user, updateProfile, refreshUser } = useAuth();
+  const { user, updateProfile, refreshUser, startGuest } = useAuth();
   const reducedMotion = useReducedMotion();
 
   const [step, setStep] = useState<Step>(0);
@@ -100,6 +100,17 @@ export default function OnboardingScreen() {
 
   const next = async () => {
     setError(null);
+    if (step === 0 && !user) {
+      // The guest account is created here (not on app open), so signing out never leaves a stray one.
+      setBusy(true);
+      try {
+        await startGuest();
+      } catch (err: any) {
+        return setError(`Couldn’t connect. ${err?.message ?? 'Try again.'}`);
+      } finally {
+        setBusy(false);
+      }
+    }
     if (step === 1 && !name.trim()) return setError('Enter your name to continue.');
     if (step === 3) {
       const a = parseInt(age, 10);
@@ -143,8 +154,9 @@ export default function OnboardingScreen() {
       void registerPushToken();
       void syncNotificationSchedule(user?.notificationsPerDay ?? 10);
     }
-    await refreshUser();
-    router.replace('/(tabs)');
+    const fresh = await refreshUser();
+    // Last step: save it all to an email + password account
+    router.replace(fresh?.email ? '/(tabs)' : '/create-account');
   };
 
   const isQuestion = step >= 1 && step <= QUESTION_COUNT;
@@ -273,6 +285,7 @@ export default function OnboardingScreen() {
             onPress={step === 7 ? () => void finish(true) : step === 6 ? () => go(7) : () => void next()}
           />
           {step === 7 ? <TextButton label="Not Now" onPress={() => void finish(false)} /> : null}
+          {step === 0 ? <TextButton label="I already have an account" onPress={() => router.push('/sign-in')} /> : null}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

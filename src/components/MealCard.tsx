@@ -5,7 +5,8 @@ import { font } from '../theme/fonts';
 import { api } from '../api/client';
 import { AlertCircle, Utensils } from 'lucide-react-native';
 import { useRetryMeal } from '../api/queries';
-import type { Meal } from '../api/hisaabApi';
+import type { Goal, Meal } from '../api/hisaabApi';
+import { pnlShort, pnlTone, toneBg, toneColor } from '../lib/pnl';
 import { router } from 'expo-router';
 import { ClarifyChips } from './ClarifyChips';
 
@@ -15,9 +16,11 @@ interface MealCardProps {
   onDescribeInstead?: () => void;
   /** Trainer view: no navigation, no retry (those endpoints are owner-only). */
   readOnly?: boolean;
+  /** Whose goal the P&L tag is read against (gain: "Need 480" instead of "−480"). */
+  goal?: Goal | null;
 }
 
-export const MealCard: React.FC<MealCardProps> = ({ meal, onPress, onDescribeInstead, readOnly }) => {
+export const MealCard: React.FC<MealCardProps> = ({ meal, onPress, onDescribeInstead, readOnly, goal }) => {
   const retryMutation = useRetryMeal();
 
   const handleRetry = () => {
@@ -96,13 +99,8 @@ export const MealCard: React.FC<MealCardProps> = ({ meal, onPress, onDescribeIns
   const subline = [mealTypeFormatted, timeFormatted].filter(Boolean).join(', ');
 
   // Format P&L tag (+28 or -120)
-  let pnlTag: string | null = null;
-  let pnlIsProfit = true;
-  if (meal.hisaab) {
-    pnlIsProfit = meal.hisaab.status === 'PROFIT';
-    const sign = pnlIsProfit ? '+' : '−';
-    pnlTag = `${sign}${Math.abs(meal.hisaab.amount)}`;
-  }
+  const pnlTag = meal.hisaab ? pnlShort(meal.hisaab, goal) : null;
+  const tone = meal.hisaab ? pnlTone(meal.hisaab, goal) : 'even';
 
   return (
     <TouchableOpacity
@@ -137,13 +135,13 @@ export const MealCard: React.FC<MealCardProps> = ({ meal, onPress, onDescribeIns
             <View
               style={[
                 styles.pnlTagPill,
-                { backgroundColor: pnlIsProfit ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 69, 58, 0.15)' },
+                { backgroundColor: toneBg[tone] },
               ]}
             >
               <Text
                 style={[
                   styles.pnlTagText,
-                  { color: pnlIsProfit ? colors.profit : colors.loss },
+                  { color: toneColor[tone] },
                 ]}
               >
                 {pnlTag}

@@ -1,65 +1,76 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { clearToken, getDeviceId, getToken, saveToken } from './authStorage';
+import { clearToken, getToken, newDeviceId, onSessionExpired, saveToken } from './authStorage';
+import { cancelScheduledReminders } from '../notifications/notificationService';
 import type { Profile, Targets, User } from '../api/hisaabApi';
 
+/**
+ * Sessions:
+ *  - signed out: no token → welcome screen (Get Started / Sign in)
+ *  - guest: "Get Started" creates a guest account so onboarding can save the profile
+ *  - account: the guest adds an email + password at the end of onboarding (register),
+ *    or an existing account signs in. Signing out drops the token and every cached screen.
+ */
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
   isOnboarded: boolean;
-  deviceId: string | null;
   error: string | null;
   bootstrap: () => Promise<void>;
+  startGuest: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
   updateProfile: (profile: Profile) => Promise<User>;
   updateTargets: (targets: Targets | { reset: true }) => Promise<User>;
   refreshUser: () => Promise<User | null>;
   setUser: React.Dispatch<React.SetStateAction<User | null>>;
-  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [deviceId, setDeviceId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const startSession = useCallback(
+    async (res: { token: string; user: User }) => {
+      await saveToken(res.token);
+      queryClient.clear(); // never show the previous account's screens
+      setToken(res.token);
+      setUser(res.user);
+    },
+    [queryClient],
+  );
+
+  const endSession = useCallback(() => {
+    queryClient.clear();
+    setToken(null);
+    setUser(null);
+  }, [queryClient]);
 
   const bootstrap = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const devId = await getDeviceId();
-      setDeviceId(devId);
-
-      let savedToken = await getToken();
-
+      const savedToken = await getToken();
       if (!savedToken) {
-        // First launch or cleared: authenticate as guest
-        const authRes = await api.auth.guest({ deviceId: devId });
-        savedToken = authRes.token;
-        await saveToken(savedToken);
-        setToken(savedToken);
-        setUser(authRes.user);
-      } else {
-        setToken(savedToken);
-        try {
-          const meRes = await api.me.get();
-          setUser(meRes.user);
-        } catch (meErr: any) {
-          if (meErr?.status === 401) {
-            // Re-authenticate guest
-            const authRes = await api.auth.guest({ deviceId: devId });
-            await saveToken(authRes.token);
-            setToken(authRes.token);
-            setUser(authRes.user);
-          } else {
-            console.warn('[AuthProvider] me.get() failed:', meErr);
-            throw meErr;
-          }
-        }
+        endSession();
+        return;
+      }
+      setToken(savedToken);
+      try {
+        const meRes = await api.me.get();
+        setUser(meRes.user);
+      } catch (meErr: any) {
+        // 401: the API client already cleared the token → welcome screen. Anything else = server unreachable.
+        if (meErr?.status === 401) endSession();
+        else throw meErr;
       }
     } catch (err: any) {
       console.error('[AuthProvider] bootstrap error:', err);
@@ -67,11 +78,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [endSession]);
 
   useEffect(() => {
-    bootstrap();
+    void bootstrap();
   }, [bootstrap]);
+
+  // Token rejected mid-use (expired, account deleted): back to the welcome screen.
+  useEffect(() => onSessionExpired(endSession), [endSession]);
+
+  const startGuest = useCallback(async () => {
+    if (user) return;
+    // A brand-new guest key every time, so a key that already has an account is never reused.
+    const res = await api.auth.guest({ deviceId: await newDeviceId() });
+    await startSession(res);
+  }, [user, startSession]);
+
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      await startSession(await api.auth.login({ email: email.trim(), password }));
+    },
+    [startSession],
+  );
+
+  const register = useCallback(async (email: string, password: string) => {
+    // Same account, now with an email: keep the cache, just swap in the new token.
+    const res = await api.auth.register({ email: email.trim(), password });
+    await saveToken(res.token);
+    setToken(res.token);
+    setUser(res.user);
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await cancelScheduledReminders();
+    await clearToken();
+    endSession();
+  }, [endSession]);
 
   const updateProfile = useCallback(async (profile: Profile): Promise<User> => {
     const res = await api.me.updateProfile(profile);
@@ -96,13 +138,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const logout = useCallback(async () => {
-    await clearToken();
-    setToken(null);
-    setUser(null);
-    await bootstrap();
-  }, [bootstrap]);
-
   const isOnboarded = user !== null && user.profile !== null;
 
   return (
@@ -112,14 +147,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         isLoading,
         isOnboarded,
-        deviceId,
         error,
         bootstrap,
+        startGuest,
+        signIn,
+        register,
+        signOut,
         updateProfile,
         updateTargets,
         refreshUser,
         setUser,
-        logout,
       }}
     >
       {children}
@@ -134,4 +171,3 @@ export function useAuth(): AuthContextType {
   }
   return context;
 }
-

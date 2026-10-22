@@ -6,12 +6,13 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radii } from '../../src/theme/tokens';
 import { font } from '../../src/theme/fonts';
 import { useChatHistory, useSendChatMessage, useClearChat, useSubscription } from '../../src/api/queries';
@@ -19,16 +20,18 @@ import { router } from 'expo-router';
 import { ArrowUp, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { ChatMessage } from '../../src/api/hisaabApi';
+import { ThinkingIndicator } from '../../src/components/ThinkingIndicator';
+
+const NO_MESSAGES: ChatMessage[] = [];
 
 const SUGGESTIONS = [
-  'If I eat a slice of cake, how much loss is that?',
+  'If I eat a slice of cake, where does that leave me?',
   'I have 400 kcal left. What should I eat for dinner?',
   'How is my day looking?',
   'How do I get more protein on a veg diet?',
 ];
 
 export default function CoachScreen() {
-  const insets = useSafeAreaInsets();
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
 
@@ -37,7 +40,7 @@ export default function CoachScreen() {
   const sendMessageMutation = useSendChatMessage();
   const clearChatMutation = useClearChat();
 
-  const messages: ChatMessage[] = historyData?.messages || [];
+  const messages: ChatMessage[] = historyData?.messages ?? NO_MESSAGES;
 
   const chatsUsed = subData?.usage?.chats?.used ?? 0;
   const chatsLimit = subData?.usage?.chats?.limit ?? 5;
@@ -47,13 +50,15 @@ export default function CoachScreen() {
 
   const handleSend = (textToSend?: string) => {
     const text = (textToSend ?? inputText).trim();
-    if (!text) return;
+    if (!text || sendMessageMutation.isPending) return;
 
     setInputText('');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     sendMessageMutation.mutate(text, {
       onError: (err: any) => {
+        // Give a typed message back so it isn't lost (the optimistic bubble is already removed).
+        if (textToSend === undefined) setInputText((cur) => cur || text);
         if (err?.code === 'PAYWALL_LIMIT' || err?.status === 402) {
           router.push({
             pathname: '/paywall',
@@ -76,6 +81,14 @@ export default function CoachScreen() {
       },
     ]);
   };
+
+  // Keyboard opening shrinks the list: keep the latest message in view above the input.
+  useEffect(() => {
+    const sub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () =>
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 60),
+    );
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -112,11 +125,10 @@ export default function CoachScreen() {
         </View>
       </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        style={{ flex: 1 }}
-      >
+      {/* "padding" on Android too: with edge-to-edge the window no longer shrinks for the keyboard,
+          so without it the keyboard covers the input. No offset: this view's frame is already
+          measured from the top of the screen. */}
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         {isLoading && !historyData ? (
           <View style={styles.centerLoading}>
             <ActivityIndicator color={colors.textDim} size="large" />
@@ -131,6 +143,7 @@ export default function CoachScreen() {
                   key={idx}
                   style={styles.suggestionRow}
                   onPress={() => handleSend(s)}
+                  disabled={sendMessageMutation.isPending}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.suggestionText}>{s}</Text>
@@ -163,18 +176,16 @@ export default function CoachScreen() {
                 </View>
               );
             }}
-            ListFooterComponent={
-              sendMessageMutation.isPending ? (
-                <View style={styles.typingWrap}>
-                  <Text style={styles.typingText}>Coach is checking your numbers…</Text>
-                </View>
-              ) : null
-            }
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            ListFooterComponent={sendMessageMutation.isPending ? <ThinkingIndicator /> : null}
           />
         )}
 
         {/* Input Bar pinned above the keyboard */}
-        <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        {/* Inside the tabs: the tab bar already clears the home indicator, so no safe-area padding here. */}
+        <View style={styles.inputBar}>
           <TextInput
             style={styles.inputField}
             placeholder="Ask your coach…"
@@ -316,19 +327,12 @@ const styles = StyleSheet.create({
     color: colors.text,
     letterSpacing: -0.2,
   },
-  typingWrap: {
-    paddingVertical: 8,
-  },
-  typingText: {
-    fontFamily: font.medium,
-    fontSize: 14,
-    color: colors.textDim,
-  },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 12,
+    paddingBottom: 12,
     backgroundColor: colors.bg,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,

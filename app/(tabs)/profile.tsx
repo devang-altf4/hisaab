@@ -42,11 +42,12 @@ import {
   Check,
 } from 'lucide-react-native';
 import { ChoiceList, Segmented, NumberRow, type Choice } from '../../src/onboarding/kit';
+import { pnlText, pnlTone, toneColor } from '../../src/lib/pnl';
 import type { ActivityLevel, Goal, Sex } from '../../src/api/hisaabApi';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, refreshUser, updateProfile, updateTargets } = useAuth();
+  const { user, refreshUser, signOut } = useAuth();
   const { data: subData } = useSubscription();
   const { data: inviteData, refetch: refetchInvite } = useTrainerInviteCode();
   const { data: clientsData } = useTrainerClients();
@@ -155,6 +156,13 @@ export default function ProfileScreen() {
             onError: (err: any) => Alert.alert('Error', err?.message || 'Try again'),
           }),
       },
+    ]);
+  };
+
+  const handleSignOut = () => {
+    Alert.alert('Sign out?', 'You can sign back in with your email and password on any phone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: () => void signOut() },
     ]);
   };
 
@@ -415,13 +423,8 @@ export default function ProfileScreen() {
 
             {/* Linked Clients */}
             {clients.map((c) => {
-              const isClientProfit = c.today?.pnl?.status === 'PROFIT';
-              const isClientLoss = c.today?.pnl?.status === 'LOSS';
-              const pnlTag = isClientProfit
-                ? `In profit, ${c.today.caloriesLeft.toLocaleString()} kcal`
-                : isClientLoss
-                ? `In loss, ${Math.abs(c.today.pnl.amount).toLocaleString()} kcal`
-                : `${c.today.caloriesLeft} kcal left`;
+              const clientTone = c.today?.pnl ? pnlTone(c.today.pnl, c.goal) : 'even';
+              const pnlTag = c.today?.pnl ? pnlText(c.today.pnl, c.goal, { they: true }) : 'Nothing logged';
 
               return (
                 <View key={c.id}>
@@ -435,7 +438,7 @@ export default function ProfileScreen() {
                       <Text
                         style={[
                           styles.rowDetailText,
-                          { color: isClientProfit ? colors.profit : isClientLoss ? colors.loss : colors.textDim },
+                          { color: clientTone === 'even' ? colors.textDim : toneColor[clientTone] },
                         ]}
                       >
                         {pnlTag}
@@ -446,6 +449,23 @@ export default function ProfileScreen() {
                 </View>
               );
             })}
+          </View>
+        </View>
+
+        {/* Account group */}
+        <View style={styles.sectionWrap}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <View style={styles.group}>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Email</Text>
+              <Text style={styles.rowValueDim} numberOfLines={1}>
+                {user?.email ?? 'Not set'}
+              </Text>
+            </View>
+            <View style={styles.separator} />
+            <TouchableOpacity style={styles.row} onPress={handleSignOut} activeOpacity={0.7} accessibilityRole="button">
+              <Text style={[styles.rowLabel, { color: colors.loss }]}>Sign Out</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -854,6 +874,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
     fontVariant: ['tabular-nums'],
+  },
+  rowValueDim: {
+    flexShrink: 1,
+    marginLeft: 16,
+    fontFamily: font.regular,
+    fontSize: 16,
+    color: colors.textDim,
   },
   planUsageRow: {
     paddingHorizontal: 16,

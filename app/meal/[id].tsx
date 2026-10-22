@@ -17,6 +17,7 @@ import { font } from '../../src/theme/fonts';
 import { api } from '../../src/api/client';
 import { useMeal, usePatchMeal, useDeleteMeal, useEditMealItems } from '../../src/api/queries';
 import { ClarifyChips } from '../../src/components/ClarifyChips';
+import { useAuth } from '../../src/auth/AuthContext';
 import { ItemEditor, previewRow, rowsFromIngredients, type ItemRow, type Preview } from '../../src/components/ItemEditor';
 import { CorrectionSheet } from '../../src/components/CorrectionSheet';
 import { ChevronLeft, Trash2, Plus, Minus } from 'lucide-react-native';
@@ -28,6 +29,7 @@ const MEAL_SLOTS: MealType[] = ['breakfast', 'lunch', 'snack', 'dinner'];
 export default function MealDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const goal = useAuth().user?.profile?.goal;
   const { data: mealData, isLoading, error } = useMeal(id!);
   const patchMealMutation = usePatchMeal();
   const editItemsMutation = useEditMealItems();
@@ -171,7 +173,8 @@ export default function MealDetailScreen() {
       profitLine = `In profit for ${slot} by ${kcalAmt} kcal`;
       profitColor = colors.profit;
     } else if (meal.hisaab.status === 'LOSS') {
-      profitLine = `In loss for ${slot} by ${kcalAmt} kcal`;
+      // Gain goal: a small meal isn't a loss, it's room to eat more
+      profitLine = goal === 'gain' ? `Need ${kcalAmt} kcal more at ${slot}` : `In loss for ${slot} by ${kcalAmt} kcal`;
       profitColor = colors.loss;
     } else {
       profitLine = `Right on budget for ${slot}`;

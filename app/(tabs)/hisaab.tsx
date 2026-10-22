@@ -15,7 +15,9 @@ import { colors, radii } from '../../src/theme/tokens';
 import { font } from '../../src/theme/fonts';
 import { useLedger } from '../../src/api/queries';
 import { router } from 'expo-router';
-import { daysAgoKey, parseLocalDate, formatHeaderDate } from '../../src/lib/dates';
+import { daysAgoKey, parseLocalDate, formatHeaderDate, localDateKey } from '../../src/lib/dates';
+import { pnlShort, pnlTone, toneBg, toneColor } from '../../src/lib/pnl';
+import { useAuth } from '../../src/auth/AuthContext';
 import { ChevronRight } from 'lucide-react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -44,20 +46,39 @@ export default function HisaabScreen() {
     return max;
   }, [days]);
 
-  const barWidth = Math.max(4, Math.floor(chartWidth / (days.length || 7) - (rangeDays === 7 ? 16 : 4)));
-  const stepX = chartWidth / (days.length || 7);
+  // Fixed 7 or 30 slots: a new account (history starts on the join date) gets normal-size bars from the left.
+  const barWidth = Math.max(4, Math.floor(chartWidth / rangeDays - (rangeDays === 7 ? 16 : 4)));
+  const stepX = chartWidth / rangeDays;
 
-  const isProfit = totals?.pnl.status === 'PROFIT';
-  const isLoss = totals?.pnl.status === 'LOSS';
-  const pnlSign = isProfit ? '+' : isLoss ? '−' : '';
-  const pnlColor = isProfit ? colors.profit : isLoss ? colors.loss : colors.accent;
+  const { user } = useAuth();
+  const goal = user?.profile?.goal;
+  const isGain = goal === 'gain';
+  const tone = totals ? pnlTone(totals.pnl, goal) : 'even';
+  const pnlColor = toneColor[tone];
+  const today = localDateKey();
 
-  const summaryLabel = rangeDays === 7 ? 'This week' : 'Last 30 days';
-  const pnlTitle = totals
-    ? `${pnlSign}${Math.abs(totals.pnl.amount).toLocaleString()} kcal ${isProfit ? 'in profit' : isLoss ? 'in loss' : 'break-even'}`
-    : '';
+  const sinceJoined = ledgerData != null && days.length < rangeDays;
+  const summaryLabel = sinceJoined ? 'Since you joined' : rangeDays === 7 ? 'This week' : 'Last 30 days';
+  const amount = totals ? Math.abs(totals.pnl.amount).toLocaleString() : '0';
+  // Gain goal under budget: the gap to close, not a "loss". Only today's gap can still be closed.
+  const pnlTitle = !totals
+    ? ''
+    : tone === 'profit'
+      ? `+${amount} kcal in profit`
+      : tone === 'short'
+        ? days.length === 1 && days[0].date === today
+          ? `Need ${amount} kcal more`
+          : `${amount} kcal short`
+        : tone === 'over'
+          ? `−${amount} kcal in loss`
+          : 'Right on budget';
 
   const fatKg = totals?.pnl.kgEquivalent ? Math.abs(totals.pnl.kgEquivalent).toFixed(2) : '0';
+  const kgLine = !isGain
+    ? `About ${fatKg} kg of fat`
+    : tone === 'short'
+      ? `About ${fatKg} kg of gain still to make up`
+      : `About ${fatKg} kg toward your gain`;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -106,7 +127,7 @@ export default function HisaabScreen() {
               <View style={styles.summaryTop}>
                 <Text style={styles.summaryLabel}>{summaryLabel}</Text>
                 <Text style={[styles.summaryPnl, { color: pnlColor }]}>{pnlTitle}</Text>
-                <Text style={styles.summaryFat}>About {fatKg} kg of fat</Text>
+                <Text style={styles.summaryFat}>{kgLine}</Text>
               </View>
 
               <View style={styles.separator} />
@@ -118,7 +139,7 @@ export default function HisaabScreen() {
                 </View>
                 <View style={styles.statBox}>
                   <Text style={styles.statNumber}>{totals.lossDays}</Text>
-                  <Text style={styles.statLabel}>Loss days</Text>
+                  <Text style={styles.statLabel}>{isGain ? 'Short days' : 'Loss days'}</Text>
                 </View>
                 <View style={styles.statBox}>
                   <Text style={styles.statNumber}>{totals.loggedDays}</Text>
@@ -213,22 +234,17 @@ export default function HisaabScreen() {
               <View style={styles.group}>
                 {days.slice().reverse().map((day, idx) => {
                   const dayTitle = formatHeaderDate(day.date);
-                  const isDayProfit = day.pnl.status === 'PROFIT';
-                  const isDayLoss = day.pnl.status === 'LOSS';
-                  const tagSign = isDayProfit ? '+' : isDayLoss ? '−' : '';
-                  const tagText = day.logged
-                    ? `${tagSign}${Math.abs(day.pnl.amount)}`
-                    : 'Nothing logged';
-                  const tagColor = !day.logged
-                    ? colors.textMute
-                    : isDayProfit
-                    ? colors.profit
-                    : colors.loss;
-                  const tagBg = !day.logged
-                    ? 'transparent'
-                    : isDayProfit
-                    ? 'rgba(16, 185, 129, 0.14)'
-                    : 'rgba(255, 69, 58, 0.14)';
+                  const dayTone = pnlTone(day.pnl, goal);
+                  const n = Math.abs(day.pnl.amount).toLocaleString();
+                  const tagText = !day.logged
+                    ? 'Nothing logged'
+                    : dayTone === 'short'
+                      ? day.date === today
+                        ? `Need ${n}`
+                        : `Short ${n}`
+                      : pnlShort(day.pnl, goal);
+                  const tagColor = day.logged ? toneColor[dayTone] : colors.textMute;
+                  const tagBg = day.logged ? toneBg[dayTone] : 'transparent';
 
                   return (
                     <View key={day.date} style={styles.dayRowWrap}>

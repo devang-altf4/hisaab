@@ -18,7 +18,18 @@ const store = {
 
 let deviceIdPromise: Promise<string> | null = null;
 
-/** Stable per-install id. Memoized so concurrent callers can't generate two different ids. */
+/**
+ * Fresh guest key for "Get Started". A key that later got an email + password must never be
+ * reused for a new guest, so every new guest session starts from a new one.
+ */
+export async function newDeviceId(): Promise<string> {
+  const id = Crypto.randomUUID();
+  await store.set(DEVICE_ID_KEY, id);
+  deviceIdPromise = Promise.resolve(id);
+  return id;
+}
+
+/** Current guest key. Memoized so concurrent callers can't generate two different ids. */
 export function getDeviceId(): Promise<string> {
   deviceIdPromise ??= (async () => {
     let id = await store.get(DEVICE_ID_KEY);
@@ -57,4 +68,18 @@ export async function clearToken(): Promise<void> {
   } catch (err) {
     console.warn('[authStorage] clearToken error:', err);
   }
+}
+
+// The API client tells the auth context when the server rejects the saved token
+// (expired, or the account was deleted), so the app can go back to the welcome screen.
+type Listener = () => void;
+const expiredListeners = new Set<Listener>();
+
+export function onSessionExpired(cb: Listener): () => void {
+  expiredListeners.add(cb);
+  return () => expiredListeners.delete(cb);
+}
+
+export function emitSessionExpired() {
+  for (const cb of expiredListeners) cb();
 }

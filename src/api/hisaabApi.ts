@@ -140,6 +140,10 @@ export interface Targets {
 
 export interface User {
   id: string;
+  /** null for a guest that hasn't created an account yet */
+  email: string | null;
+  /** First day of the account (YYYY-MM-DD, user's timezone): no history before it */
+  joinedOn: string;
   name: string;
   role: Role;
   timezone: string;
@@ -337,7 +341,9 @@ export class HisaabApiClient {
       headers,
     });
 
-    if (res.status === 401 && !isRetry && this.config.onUnauthorized) {
+    // A 401 from sign-in itself means "wrong password", not "session expired".
+    const isSignIn = endpoint.startsWith('/auth/login') || endpoint.startsWith('/auth/guest');
+    if (res.status === 401 && !isRetry && !isSignIn && this.config.onUnauthorized) {
       const newToken = await this.config.onUnauthorized();
       if (newToken) {
         return this.request<T>(endpoint, options, true);
@@ -381,6 +387,20 @@ export class HisaabApiClient {
   auth = {
     guest: async (body: { deviceId: string; name?: string }): Promise<{ token: string; user: User; created: boolean }> => {
       return this.request('/auth/guest', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+    /** Email + password sign-in (any phone). */
+    login: async (body: { email: string; password: string }): Promise<{ token: string; user: User }> => {
+      return this.request('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+    /** Turns the signed-in guest into an account; everything already logged stays. */
+    register: async (body: { email: string; password: string }): Promise<{ token: string; user: User }> => {
+      return this.request('/auth/register', {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -707,7 +727,7 @@ export class HisaabApiClient {
     clients: async (): Promise<{ clients: TrainerClientSummary[] }> => {
       return this.request('/trainer/clients');
     },
-    clientDashboard: async (clientId: string, date?: string): Promise<{ client: { id: string; name: string; goal: Goal; profile: Profile | null; targets: Targets }; dashboard: DashboardResponse }> => {
+    clientDashboard: async (clientId: string, date?: string): Promise<{ client: { id: string; name: string; goal: Goal; profile: Profile | null; targets: Targets; joinedOn: string }; dashboard: DashboardResponse }> => {
       const q = date ? `?date=${encodeURIComponent(date)}` : '';
       return this.request(`/trainer/clients/${encodeURIComponent(clientId)}${q}`);
     },
